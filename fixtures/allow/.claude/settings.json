@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/record.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/record.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

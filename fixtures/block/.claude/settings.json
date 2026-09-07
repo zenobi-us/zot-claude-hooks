@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/block-bash.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

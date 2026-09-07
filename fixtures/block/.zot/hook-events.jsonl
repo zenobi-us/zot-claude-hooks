@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","cwd":"/var/home/zenobius/Projects/dotfiles/devtools/files/zot/extensions/zot-hooks/fixtures/block","tool_name":"bash","tool_input":{"command":"printf 'this must not run\\n'","timeout":120000}}
