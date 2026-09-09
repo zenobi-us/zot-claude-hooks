@@ -89,15 +89,32 @@ The tool call is blocked and zot receives the supplied reason. A JSON response w
 
 ## How-to guides
 
-### See which hooks were discovered
+### Manage hooks from zot
 
-Run the extension's diagnostic command from the project directory:
+The extension registers a `/hooks` slash command with these forms:
+
+```text
+/hooks                    # show active hooks, grouped by source file
+/hooks locations          # show every valid discovery location
+/hooks add                # show hook names and add syntax
+/hooks add PreToolUse sh .zot/hooks/check-bash.sh
+```
+
+`/hooks add <hook-event> <command>` creates or updates the project-local
+`.zot/zot-cluade-hooks.json`. It preserves existing settings and adds the
+command to the event's default `.*` matcher group. The running extension
+reloads the hook list immediately after an add.
+
+Run the extension's diagnostic command from the project directory when you
+want tab-separated output for scripts:
 
 ```sh
 bun run list
 ```
 
-Each discovered hook is printed as a tab-separated row containing its event, matcher, source file, and command. This command uses the same discovery logic as the zot extension process.
+Each discovered hook is printed as an event, matcher, source file, and
+command. This command uses the same discovery logic as the zot extension
+process.
 
 ### Use a project-local hook without changing Claude settings
 

@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendFileSync } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Crust } from "@crustjs/core";
 
 type Json = Record<string, unknown>;
@@ -24,6 +24,11 @@ type HookResult = {
 const NAME = "zot-cluade-hooks";
 const VERSION = "0.1.0";
 const DEFAULT_TIMEOUT = 10_000;
+const HOOK_EVENTS = [
+  "PreToolUse", "SessionStart", "Stop", "Notification", "UserPromptSubmit",
+  "PostToolUse", "PermissionRequest", "SessionEnd", "PreCompact", "PostCompact",
+  "SubagentStart", "SubagentStop",
+];
 
 function trace(direction: "in" | "out", frame: Json): void {
   const path = process.env.ZOT_HOOKS_PROTOCOL_TRACE;
@@ -73,6 +78,57 @@ function configPaths(cwd: string): string[] {
       : undefined,
   ];
   return [...new Set(paths.filter((path): path is string => Boolean(path)))];
+}
+
+function formatLocations(cwd: string): string {
+  return [
+    "Valid hook locations (checked in this order):",
+    ...configPaths(cwd).map((path, index) => `${index + 1}. ${path}`),
+    "",
+    `The local hook command writes to: ${resolve(cwd, ".zot", "zot-cluade-hooks.json")}`,
+  ].join("\n");
+}
+
+function formatHooks(hooks: Hook[]): string {
+  if (hooks.length === 0) return "No active hooks found.";
+  const grouped = new Map<string, Hook[]>();
+  for (const hook of hooks) grouped.set(hook.source, [...(grouped.get(hook.source) ?? []), hook]);
+  const lines = ["Active hooks (merged from all discovered files):"];
+  for (const [source, sourceHooks] of grouped) {
+    lines.push(`\n${source}`);
+    for (const hook of sourceHooks) lines.push(`  - ${hook.event} [${hook.matcher}] ${hook.command}`);
+  }
+  return lines.join("\n");
+}
+
+function localConfigPath(cwd: string): string {
+  return resolve(cwd, ".zot", "zot-cluade-hooks.json");
+}
+
+async function addLocalHook(cwd: string, event: string, command: string): Promise<string> {
+  const path = localConfigPath(cwd);
+  let document: Json = {};
+  try {
+    document = asObject(JSON.parse(await readFile(path, "utf8"))) ?? {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`cannot read ${path}: ${error}`);
+  }
+  const hooks = asObject(document.hooks) ?? {};
+  const groups = asArray(hooks[event]);
+  const group = groups.length > 0 && asObject(groups[0])
+    ? asObject(groups[0]) as Json
+    : { matcher: ".*", hooks: [] };
+  group.hooks = [...asArray(group.hooks), { type: "command", command }];
+  hooks[event] = groups.length > 0 ? [group, ...groups.slice(1)] : [group];
+  document.hooks = hooks;
+  await mkdir(resolve(cwd, ".zot"), { recursive: true });
+  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  return path;
+}
+
+function parseHookAddArgs(args: string): { event?: string; command?: string } {
+  const match = args.trim().match(/^add\s+(\S+)(?:\s+([\s\S]+))?$/i);
+  return match ? { event: match[1], command: match[2]?.trim() } : {};
 }
 
 async function loadHooks(cwd: string): Promise<Hook[]> {
@@ -221,8 +277,9 @@ class HookRunner {
 }
 
 async function runProtocol(): Promise<void> {
-  send({ type: "hello", name: NAME, version: VERSION, capabilities: ["events"] });
+  send({ type: "hello", name: NAME, version: VERSION, capabilities: ["commands", "events"] });
   let runner: HookRunner | undefined;
+  let cwd = process.cwd();
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
   for await (const line of input) {
@@ -237,8 +294,9 @@ async function runProtocol(): Promise<void> {
 
     const type = frame.type;
     if (type === "hello_ack") {
-      const cwd = asString(frame.cwd, process.cwd());
+      cwd = asString(frame.cwd, process.cwd());
       runner = new HookRunner(cwd, await loadHooks(cwd));
+      send({ type: "register_command", name: "hooks", description: "show active hooks, valid locations, or add a local hook" });
       send({
         type: "subscribe",
         events: ["session_start", "turn_end", "tool_call", "assistant_message"],
@@ -246,6 +304,35 @@ async function runProtocol(): Promise<void> {
       });
       send({ type: "ready" });
       log(`loaded ${runner.hooks.length} hook(s)`);
+      continue;
+    }
+
+    if (type === "command_invoked" && asString(frame.name) === "hooks") {
+      const args = asString(frame.args).trim();
+      let display: string;
+      if (!args) display = formatHooks(await loadHooks(cwd));
+      else if (args.toLowerCase() === "locations") display = formatLocations(cwd);
+      else if (args.toLowerCase() === "add" || args.toLowerCase() === "help") {
+        display = [
+          "Add a local hook with: /hooks add <hook-event> <command>",
+          `Hook events: ${HOOK_EVENTS.join(", ")}`,
+          "Example: /hooks add PreToolUse printf '%s\\n' blocked",
+        ].join("\n");
+      } else {
+        const parsed = parseHookAddArgs(args);
+        if (!parsed.event || !parsed.command) {
+          display = "Usage: /hooks add <hook-event> <command> (try /hooks add for event names)";
+        } else {
+          try {
+            const path = await addLocalHook(cwd, parsed.event, parsed.command);
+            runner = new HookRunner(cwd, await loadHooks(cwd));
+            display = `Added ${parsed.event} hook to ${path}`;
+          } catch (error) {
+            display = `Could not add hook: ${error}`;
+          }
+        }
+      }
+      send({ type: "command_response", id: asString(frame.id), action: "display", display });
       continue;
     }
 
