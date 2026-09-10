@@ -63,14 +63,18 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function zotHome(): string {
+  if (process.env.ZOT_HOME) return resolve(process.env.ZOT_HOME);
+  const stateHome = process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
+  return resolve(stateHome, "zot");
+}
+
 function configPaths(cwd: string): string[] {
   const paths = [
     join(homedir(), ".claude", "settings.json"),
+    resolve(zotHome(), "zot-cluade-hooks.json"),
     resolve(cwd, ".claude", "settings.json"),
     resolve(cwd, ".claude", "settings.local.json"),
-    process.env.ZOT_USER_CONFIG_DIR
-      ? resolve(cwd, process.env.ZOT_USER_CONFIG_DIR, "zot-cluade-hooks.json")
-      : undefined,
     resolve(cwd, ".zot", "zot-cluade-hooks.json"),
     resolve(cwd, ".zot", "zot-cluade-hooks.local.json"),
     process.env.ZOT_HOOKS_PATH

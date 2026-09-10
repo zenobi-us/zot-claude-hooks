@@ -169,7 +169,7 @@ ZOT_HOOKS_PATH="$HOME/.config/zot/hooks.json" \
   zot --ext /path/to/zot-cluade-hooks
 ```
 
-`ZOT_USER_CONFIG_DIR` is another option for a user configuration directory. The extension looks for `zot-cluade-hooks.json` below that path.
+The extension also checks `$ZOT_HOME/zot-cluade-hooks.json` for user-level hooks. `$ZOT_HOME` follows zot's normal resolution: `ZOT_HOME`, then `$XDG_STATE_HOME/zot`, then `~/.local/state/zot` on Linux.
 
 ### Run the test suite
 
@@ -225,9 +225,9 @@ Relative command paths and relative configuration paths resolve from the project
 Existing files are checked in this order:
 
 1. `~/.claude/settings.json`
-2. `.claude/settings.json`
-3. `.claude/settings.local.json`
-4. `$ZOT_USER_CONFIG_DIR/zot-cluade-hooks.json` (when `ZOT_USER_CONFIG_DIR` is set)
+2. `$ZOT_HOME/zot-cluade-hooks.json`
+3. `.claude/settings.json`
+4. `.claude/settings.local.json`
 5. `.zot/zot-cluade-hooks.json`
 6. `.zot/zot-cluade-hooks.local.json`
 7. `$ZOT_HOOKS_PATH` (when `ZOT_HOOKS_PATH` is set)

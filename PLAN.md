@@ -8,7 +8,7 @@ Discussion: https://github.com/patriceckhart/zot/discussions/170
 
 These features use the current zot extension protocol.
 
-- Discover hook definitions in `~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, `$ZOT_USER_CONFIG_DIR/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, and `$ZOT_HOOKS_PATH`.
+- Discover hook definitions in `~/.claude/settings.json`, `$ZOT_HOME/zot-cluade-hooks.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, and `$ZOT_HOOKS_PATH`.
 - Read a top-level `hooks` object from each JSON file.
 - Support `type: "command"` hook entries.
 - Support `matcher` as a regular expression against the zot tool name.
@@ -52,4 +52,4 @@ Track implementation against [discussion #170](https://github.com/patriceckhart/
 - Define how hook command output maps to tool argument changes.
 - Define whether invalid matchers disable one hook or the full file.
 
-The current discovery order is global Claude settings, project Claude settings, project-local overrides, the configured user zot settings file, project zot settings, project-local zot overrides, and `ZOT_HOOKS_PATH`. `settings.json` files are now the supported configuration format.
+The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local overrides, project Zot settings, project-local Zot overrides, and `ZOT_HOOKS_PATH`. `settings.json` files are now the supported configuration format.
