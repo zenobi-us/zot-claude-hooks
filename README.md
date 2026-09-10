@@ -10,14 +10,14 @@
 
 You need:
 
-- [Bun](https://bun.sh/), to install and run this extension.
+- Go 1.25 or a prebuilt `zot-cluade-hooks` binary.
 - `zot`, available on your `PATH`.
 - A project directory in which zot can run.
 
-From this repository, install the dependency:
+Build the extension from this repository:
 
 ```sh
-bun install
+go build -o zot-cluade-hooks .
 ```
 
 ### 2. Add a hook configuration
@@ -94,27 +94,35 @@ The tool call is blocked and zot receives the supplied reason. A JSON response w
 The extension registers a `/hooks` slash command with these forms:
 
 ```text
-/hooks                    # show active hooks, grouped by source file
+/hooks                    # open the interactive hook panel
 /hooks locations          # show every valid discovery location
-/hooks add                # show hook names and add syntax
+/hooks add                # open the panel directly in add mode
 /hooks add PreToolUse sh .zot/hooks/check-bash.sh
 ```
 
-`/hooks add <hook-event> <command>` creates or updates the project-local
-`.zot/zot-cluade-hooks.json`. It preserves existing settings and adds the
-command to the event's default `.*` matcher group. The running extension
-reloads the hook list immediately after an add.
+The hook panel lists active hooks merged from all discovered files. Press
+`a` to enter the add flow. The hook-event field provides a filtered dropdown:
+type to narrow the choices, use Up/Down to select one, and press Enter. Then
+type the command and press Enter again. Use Backspace to edit, Escape to
+cancel, and `r` to reload the hook files. The panel updates after a successful
+add.
+
+`/hooks add <hook-event> <command>` remains available for scripted use. It
+creates or updates the project-local `.zot/zot-cluade-hooks.json`, preserves
+existing settings, adds the command to the event's default `.*` matcher group,
+and reloads the hook list immediately after an add.
 
 Run the extension's diagnostic command from the project directory when you
 want tab-separated output for scripts:
 
 ```sh
-bun run list
+./zot-cluade-hooks list
 ```
 
 Each discovered hook is printed as an event, matcher, source file, and
 command. This command uses the same discovery logic as the zot extension
-process.
+process. Hooks loaded from another extension retain that extension as their
+owner in `/hooks` output.
 
 ### Use a project-local hook without changing Claude settings
 
@@ -153,12 +161,7 @@ cat >> .zot/hook-events.jsonl
 
 Keep hook diagnostics on standard error. The extension uses standard output for its JSONL protocol when it is running under zot; arbitrary output from the extension process can break the protocol.
 
-For protocol-level debugging, set `ZOT_HOOKS_PROTOCOL_TRACE` to a writable file. The extension writes one JSON object per line with the direction (`in` or `out`) and protocol frame:
-
-```sh
-ZOT_HOOKS_PROTOCOL_TRACE=/tmp/zot-hooks-protocol.jsonl \
-  zot --ext /path/to/zot-cluade-hooks
-```
+The Go implementation delegates protocol handling to zot's extension SDK. For protocol-level debugging, use zot's extension logs and tracing facilities. Hook payloads and command diagnostics remain available through the project-local files and stderr as shown above.
 
 ### Use a shared hook file
 
@@ -171,13 +174,26 @@ ZOT_HOOKS_PATH="$HOME/.config/zot/hooks.json" \
 
 The extension also checks `$ZOT_HOME/zot-cluade-hooks.json` for user-level hooks. `$ZOT_HOME` follows zot's normal resolution: `ZOT_HOME`, then `$XDG_STATE_HOME/zot`, then `~/.local/state/zot` on Linux.
 
+Installed extensions may contribute hook files in:
+
+```text
+$ZOT_HOME/extensions/<extension-name>/hooks/*.json
+```
+
+These files are loaded in deterministic extension-name and filename order. The current hook extension is excluded, and commands still run with the active project directory as their working directory. Use `/hooks locations` to inspect discovered extension hook files.
+
 ### Run the test suite
 
-Run unit and integration tests with Bun:
+Run the Go tests:
 
 ```sh
-bun test
-bun run test:e2e
+go test ./...
+```
+
+The existing zot integration tests can be run against the compiled extension:
+
+```sh
+bun test test/e2e
 ```
 
 The end-to-end tests launch zot with temporary configuration and a fake provider. They verify allowing a matching hook and blocking with either exit status `2` or a JSON decision.
@@ -231,6 +247,7 @@ Existing files are checked in this order:
 5. `.zot/zot-cluade-hooks.json`
 6. `.zot/zot-cluade-hooks.local.json`
 7. `$ZOT_HOOKS_PATH` (when `ZOT_HOOKS_PATH` is set)
+8. `$ZOT_HOME/extensions/*/hooks/*.json` (excluding `zot-cluade-hooks` itself)
 
 All valid definitions found at these paths are loaded. Later files do not automatically replace earlier files, so use matchers and commands that make multiple matching hooks safe.
 
@@ -314,11 +331,11 @@ Hook files execute arbitrary shell commands from user and project configuration.
 ## Repository layout
 
 - [`extension.json`](extension.json): zot extension manifest.
-- [`index.ts`](index.ts): JSONL protocol process, hook discovery, command runner, and `list` diagnostic command.
+- [`main.go`](main.go): Go SDK extension, hook discovery, command runner, and `list` diagnostic command.
 - [`fixtures/README.md`](fixtures/README.md): manual fixture walkthroughs.
 - [`test/e2e/runner.test.ts`](test/e2e/runner.test.ts): end-to-end coverage.
 - [`PLAN.md`](PLAN.md): current capabilities, limitations, and future work.
-- [`package.json`](package.json): Bun scripts and dependency declaration.
+- [`go.mod`](go.mod): Go module and zot extension SDK dependency.
 
 ## Project status
 

@@ -104,10 +104,9 @@ describe("zot-cluade-hooks end-to-end", () => {
       },
     });
     const events = jsonLines(result.eventLog);
-    const protocol = jsonLines(result.protocolLog);
     expect(events.some((event) => event.type === "tool_call")).toBe(true);
-    expect(protocol.some((entry) => (entry.frame as Record<string, unknown>).type === "event_intercept")).toBe(true);
-    expect(protocol.some((entry) => (entry.frame as Record<string, unknown>).type === "event_intercept_response")).toBe(true);
+    // The Go SDK owns the wire protocol, so protocol frames are not traced by
+    // the extension. The observable interception result is asserted below.
     expect(result.stdout).toContain("fixture complete");
   }, 20_000);
 
@@ -125,6 +124,5 @@ describe("zot-cluade-hooks end-to-end", () => {
     expect(result.exitCode).toBe(0);
     expect(result.actions).toContain('"tool_name":"bash"');
     expect(result.stdout).toContain("fixture blocked this tool");
-    expect(result.protocolLog).toContain('"block":true');
   }, 20_000);
 });

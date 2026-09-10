@@ -8,7 +8,7 @@ Discussion: https://github.com/patriceckhart/zot/discussions/170
 
 These features use the current zot extension protocol.
 
-- Discover hook definitions in `~/.claude/settings.json`, `$ZOT_HOME/zot-cluade-hooks.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, and `$ZOT_HOOKS_PATH`.
+- Discover hook definitions in `~/.claude/settings.json`, `$ZOT_HOME/zot-cluade-hooks.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, `$ZOT_HOOKS_PATH`, and `$ZOT_HOME/extensions/*/hooks/*.json`.
 - Read a top-level `hooks` object from each JSON file.
 - Support `type: "command"` hook entries.
 - Support `matcher` as a regular expression against the zot tool name.
@@ -24,11 +24,12 @@ These features use the current zot extension protocol.
   - `tool_call` for audit information
   - `assistant_message` for audit information
 - Enforce a command timeout.
+- Discover JSON hook files contributed by installed extensions.
 - Write diagnostics to standard error.
 - Keep standard output reserved for the zot protocol.
 - Fail open when a hook command times out or returns an invalid response, except that a valid hook exit status `2` blocks the tool.
 
-The current scaffold implements the protocol client, hook discovery, `PreToolUse`, and current event forwarding. It leaves policy details marked with `TODO` comments.
+The Go implementation uses zot's extension SDK for protocol handling and implements hook discovery, `PreToolUse`, current event forwarding, and the `list` diagnostic command. Remaining policy details are tracked below.
 
 ## 2. TODO: requires missing zot events
 
@@ -52,4 +53,4 @@ Track implementation against [discussion #170](https://github.com/patriceckhart/
 - Define how hook command output maps to tool argument changes.
 - Define whether invalid matchers disable one hook or the full file.
 
-The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local overrides, project Zot settings, project-local Zot overrides, and `ZOT_HOOKS_PATH`. `settings.json` files are now the supported configuration format.
+The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local overrides, project Zot settings, project-local Zot overrides, `ZOT_HOOKS_PATH`, and installed extension hook files. `settings.json` files are now the supported configuration format.

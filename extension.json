@@ -1,9 +1,9 @@
 {
   "name": "zot-cluade-hooks",
-  "version": "0.1.0",
-  "exec": "bun",
-  "args": ["run", "index.ts"],
-  "language": "typescript",
+  "version": "0.2.0",
+  "exec": "go",
+  "args": ["run", "main.go"],
+  "language": "go",
   "description": "Run command hooks from Claude-style hook JSON files",
   "enabled": true
 }
