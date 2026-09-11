@@ -23,9 +23,10 @@ import (
 
 const (
 	name           = "zot-cluade-hooks"
-	version        = "0.2.0"
 	defaultTimeout = 10 * time.Second
 )
+
+var version = "0.0.0-dev"
 
 var hookEvents = []string{"PreToolUse", "SessionStart", "Stop", "Notification", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"}
 

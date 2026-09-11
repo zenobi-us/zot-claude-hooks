@@ -1,0 +1,107 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Distribution channel
+        required: true
+        default: next
+        type: choice
+        options: [next, latest]
+      source_sha:
+        description: Full source commit SHA
+        required: true
+        type: string
+  repository_dispatch:
+    types: [publish-extension]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.channel || inputs.channel }}
+      SOURCE_SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_sha || inputs.source_sha }}
+      SOURCE_BRANCH: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_branch || github.ref_name }}
+    steps:
+      - name: Validate source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${CHANNEL}" == next || "${CHANNEL}" == latest ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          case "${SOURCE_BRANCH}" in master|release/*) ;; *) exit 1 ;; esac
+          [[ "${GITHUB_EVENT_NAME}" != repository_dispatch || "${GITHUB_ACTOR}" == github-actions[bot] ]]
+          git init -q --bare "${RUNNER_TEMP}/verify"
+          git -C "${RUNNER_TEMP}/verify" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "${RUNNER_TEMP}/verify" fetch -q origin "+refs/heads/${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}"
+          git -C "${RUNNER_TEMP}/verify" cat-file -e "${SOURCE_SHA}^{commit}"
+          git -C "${RUNNER_TEMP}/verify" merge-base --is-ancestor "${SOURCE_SHA}" "refs/remotes/origin/${SOURCE_BRANCH}"
+
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          stable="$(jq -r .version extension.json)"
+          if [[ "${CHANNEL}" == latest ]]; then
+            version="${stable}"
+            tag="zot-cluade-hooks-v${version}"
+          else
+            IFS=. read -r major minor patch <<<"${stable}"
+            if [[ "${SOURCE_BRANCH}" == release/* ]]; then
+              next="${major}.${minor}.$((patch + 1))"
+            else
+              next="${major}.$((minor + 1)).0"
+            fi
+            version="${next}-next.${GITHUB_RUN_NUMBER}"
+            tag="zot-cluade-hooks-v${version}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release archives
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            IFS=/ read -r goos goarch <<<"${target}"
+            suffix=""
+            [[ "${goos}" == windows ]] && suffix=.exe
+            name="zot-cluade-hooks-${goos}-${goarch}"
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${name}${suffix}" .
+            if [[ "${goos}" == windows ]]; then
+              (cd dist && zip -q "${name}.zip" "${name}${suffix}")
+            else
+              tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            fi
+            rm "dist/${name}${suffix}"
+          done
+          (cd dist && sha256sum -- * > checksums.txt)
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${CHANNEL}" == latest ]]; then
+            gh release view "${TAG}" >/dev/null
+          else
+            gh release create "${TAG}" --target "${SOURCE_SHA}" --title "${TAG}" --prerelease --generate-notes
+          fi
+          gh release upload "${TAG}" --clobber -- dist/./*

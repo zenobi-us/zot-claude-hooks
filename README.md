@@ -190,13 +190,13 @@ Run the Go tests:
 go test ./...
 ```
 
-The existing zot integration tests can be run against the compiled extension:
+The Go test suite can be run against the extension:
 
 ```sh
-bun test test/e2e
+go test ./...
 ```
 
-The end-to-end tests launch zot with temporary configuration and a fake provider. They verify allowing a matching hook and blocking with either exit status `2` or a JSON decision.
+The end-to-end tests launch zot with temporary configuration and a local fake OpenAI-compatible provider. They verify allowing a matching hook and blocking with either exit status `2` or a JSON decision. No external model provider or API credentials are required.
 
 Manual fixtures are documented in [`fixtures/README.md`](fixtures/README.md).
 

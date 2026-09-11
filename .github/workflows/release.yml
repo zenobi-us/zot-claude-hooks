@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+      - release/*
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    outputs:
+      process: ${{ steps.ownership.outputs.process }}
+      releases_created: ${{ steps.release-please.outputs.releases_created || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release ownership
+        id: ownership
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/release/*:refs/remotes/origin/release/*' --quiet
+          process=true
+          if [[ "${GITHUB_REF_NAME}" == release/* ]] && \
+             .github/tasks/release-branches.sh is-root-commit "${GITHUB_SHA}" "${GITHUB_REF_NAME}" origin/master; then
+            process=false
+          elif [[ "${GITHUB_REF_NAME}" == master ]]; then
+            hotfix_pr="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq 'any(.[]; .head.ref | startswith("release/"))')"
+            if [[ "${hotfix_pr}" == true ]] || \
+               .github/tasks/release-branches.sh is-hotfix-merge "${GITHUB_SHA}" '${{ github.event.before }}'; then
+              process=false
+            fi
+          fi
+          echo "process=${process}" >> "${GITHUB_OUTPUT}"
+
+      - name: Select configuration
+        id: mode
+        run: |
+          mode="$(.github/tasks/get-release-mode "${GITHUB_REF_NAME}")"
+          case "${mode}" in
+            normal) config=release-please-config--release.json ;;
+            hotfix) config=release-please-config--hotfix.json ;;
+          esac
+          echo "config=${config}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Release Please
+        if: steps.ownership.outputs.process == 'true'
+        id: release-please
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: ${{ steps.mode.outputs.config }}
+          manifest-file: .release-please-manifest.json
+          target-branch: ${{ github.ref_name }}
+
+      - name: Summarise Release Please
+        if: steps.ownership.outputs.process == 'true'
+        env:
+          RP_OUTPUTS: ${{ toJson(steps.release-please.outputs) }}
+        run: .github/tasks/summarise-release-please.sh "${RP_OUTPUTS}"
+
+  publish:
+    needs: process
+    if: needs.process.outputs.process == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Dispatch publish
+        uses: peter-evans/repository-dispatch@bf47d102fdb849e755b0b0023ea3e81a44b6f570 # v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: publish-extension
+          client-payload: '{"channel":"${{ needs.process.outputs.releases_created == ''true'' && ''latest'' || ''next'' }}","source_sha":"${{ github.sha }}","source_branch":"${{ github.ref_name }}"}'
