@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +31,7 @@ var hookEvents = []string{"PreToolUse", "SessionStart", "Stop", "Notification", 
 
 type hook struct {
 	Event, Command, Matcher, Source, Owner string
+	MatcherRE                              *regexp.Regexp
 	Timeout                                time.Duration
 }
 
@@ -163,63 +163,13 @@ func loadHooks(cwd string) []hook {
 			}
 			continue
 		}
-		var document map[string]any
-		if err := json.Unmarshal(data, &document); err != nil {
-			logf("cannot read %s: %v", source.path, err)
-			continue
-		}
-		definitions := object(document["hooks"])
-		if definitions == nil {
-			logf("ignoring %s: hooks must be an object", source.path)
-			continue
-		}
-		for event, groupsValue := range definitions {
-			for _, groupValue := range array(groupsValue) {
-				group := object(groupValue)
-				if group == nil {
-					continue
-				}
-				matcher := stringsValue(group["matcher"], ".*")
-				if matcher == "" {
-					matcher = ".*"
-				}
-				for _, itemValue := range array(group["hooks"]) {
-					item := object(itemValue)
-					if item == nil || item["type"] != "command" {
-						continue
-					}
-					command := stringsValue(item["command"], "")
-					if command == "" {
-						logf("ignoring command without text in %s", source.path)
-						continue
-					}
-					timeout := defaultTimeout
-					switch value := item["timeout"].(type) {
-					case float64:
-						timeout = time.Duration(value * float64(time.Second))
-					case string:
-						if n, err := strconv.ParseFloat(value, 64); err == nil {
-							timeout = time.Duration(n * float64(time.Second))
-						}
-					}
-					if timeout < 100*time.Millisecond {
-						timeout = 100 * time.Millisecond
-					}
-					result = append(result, hook{Event: event, Command: command, Matcher: matcher, Timeout: timeout, Source: source.path, Owner: source.owner})
-				}
-			}
-		}
+		result = append(result, parseHookDocument(data, source.path, source.owner)...)
 	}
 	return result
 }
 
 func matches(h hook, toolName string) bool {
-	re, err := regexp.Compile(h.Matcher)
-	if err != nil {
-		logf("invalid matcher in %s: %v", h.Source, err)
-		return false
-	}
-	return re.MatchString(toolName)
+	return h.MatcherRE != nil && h.MatcherRE.MatchString(toolName)
 }
 
 func runHook(ctx context.Context, h hook, payload map[string]any, cwd string) hookResult {
