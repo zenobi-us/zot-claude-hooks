@@ -10,11 +10,11 @@
 
 You need:
 
-- Go 1.25 or a prebuilt `zot-cluade-hooks` binary.
+- Go 1.25 (`go@1.25`) to build the extension, or a prebuilt `zot-cluade-hooks` binary.
 - `zot`, available on your `PATH`.
 - A project directory in which zot can run.
 
-Build the extension from this repository:
+Build the extension to install it for zot:
 
 ```sh
 go build -o zot-cluade-hooks .
