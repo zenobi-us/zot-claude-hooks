@@ -1,9 +1,44 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/patriceckhart/zot/packages/agent/ext"
 )
+
+func TestEventPayloadIncludesEffectiveToolResultDetails(t *testing.T) {
+	a := &app{cwd: "/tmp/project"}
+	executed := true
+	ev := ext.Event{
+		Name: "tool_result", SessionID: "session-1", Sequence: 7,
+		ToolID: "call-1", ToolName: "bash", ToolArgs: json.RawMessage(`{"command":"printf ok"}`),
+		Status: "completed", Executed: &executed,
+	}
+	payload := a.eventPayload("PostToolUse", ev)
+	if payload["hook_event_name"] != "PostToolUse" || payload["tool_name"] != "bash" {
+		t.Fatalf("got unexpected payload: %#v", payload)
+	}
+	if payload["tool_status"] != "completed" || payload["tool_executed"] != true {
+		t.Fatalf("missing tool outcome fields: %#v", payload)
+	}
+	args, ok := payload["tool_input"].(json.RawMessage)
+	if !ok || string(args) != `{"command":"printf ok"}` {
+		t.Fatalf("got tool input %q, want effective arguments", args)
+	}
+}
+
+func TestEventPayloadIncludesLifecycleFields(t *testing.T) {
+	a := &app{cwd: "/tmp/project"}
+	count, tokens := 12, 345
+	payload := a.eventPayload("PreCompact", ext.Event{
+		Name: "pre_compact", CompactionID: "compact-1", MessageCount: &count, TokenEstimate: &tokens,
+	})
+	if payload["compaction_id"] != "compact-1" || payload["message_count"] != 12 || payload["token_estimate"] != 345 {
+		t.Fatalf("got unexpected lifecycle payload: %#v", payload)
+	}
+}
 
 func TestParseHookDocumentBuildsTypedCommandHooks(t *testing.T) {
 	data := []byte(`{

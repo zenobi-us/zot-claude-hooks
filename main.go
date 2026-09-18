@@ -247,10 +247,82 @@ func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	return true, ""
 }
 
-func (a *app) event(event string, payload map[string]any) {
-	for _, h := range a.forEvent(event, "") {
+func (a *app) event(event, toolName string, payload map[string]any) {
+	for _, h := range a.forEvent(event, toolName) {
 		_ = runHook(context.Background(), h, payload, a.cwd)
 	}
+}
+
+// eventPayload translates the SDK event into the Claude hook envelope while
+// retaining the fields zot exposes. In particular, tool_result carries the
+// effective arguments and final execution status needed by PostToolUse hooks.
+func (a *app) eventPayload(hookEvent string, ev ext.Event) map[string]any {
+	payload := map[string]any{
+		"hook_event_name": hookEvent,
+		"cwd":             a.cwd,
+		"session_id":      ev.SessionID,
+		"agent_run_id":    ev.AgentRunID,
+		"sequence":        ev.Sequence,
+		"event":           ev.Name,
+	}
+	if ev.ToolID != "" {
+		payload["tool_id"] = ev.ToolID
+	}
+	if ev.ToolName != "" {
+		payload["tool_name"] = ev.ToolName
+	}
+	if len(ev.ToolArgs) > 0 {
+		payload["tool_input"] = json.RawMessage(ev.ToolArgs)
+	}
+	if ev.Status != "" {
+		payload["tool_status"] = ev.Status
+	}
+	if ev.Executed != nil {
+		payload["tool_executed"] = *ev.Executed
+	}
+	if ev.Result != nil {
+		payload["tool_result"] = ev.Result
+	}
+	if ev.Text != "" {
+		payload["message"] = ev.Text
+	}
+	if ev.Stop != "" {
+		payload["stop_reason"] = ev.Stop
+	}
+	if ev.Error != "" {
+		payload["error"] = ev.Error
+	}
+	if ev.Reason != "" {
+		payload["reason"] = ev.Reason
+	}
+	if ev.Decision != "" {
+		payload["decision"] = ev.Decision
+	}
+	if ev.Source != "" {
+		payload["source"] = ev.Source
+	}
+	if ev.Stage != "" {
+		payload["stage"] = ev.Stage
+	}
+	if ev.ToolPreview != "" {
+		payload["tool_preview"] = ev.ToolPreview
+	}
+	if ev.CompactionID != "" {
+		payload["compaction_id"] = ev.CompactionID
+	}
+	if ev.MessageCount != nil {
+		payload["message_count"] = *ev.MessageCount
+	}
+	if ev.TokenEstimate != nil {
+		payload["token_estimate"] = *ev.TokenEstimate
+	}
+	if ev.AgentID != "" {
+		payload["agent_id"] = ev.AgentID
+	}
+	if ev.AgentName != "" {
+		payload["agent_name"] = ev.AgentName
+	}
+	return payload
 }
 
 const hooksPanelID = "hooks-main"
@@ -557,16 +629,43 @@ func main() {
 			a.mu.Unlock()
 		})
 		a.ext.On("session_start", func(ev ext.Event) {
-			a.event("SessionStart", map[string]any{"hook_event_name": "SessionStart", "cwd": a.cwd})
+			a.event("SessionStart", "", a.eventPayload("SessionStart", ev))
+		})
+		a.ext.On("user_prompt_submit", func(ev ext.Event) {
+			a.event("UserPromptSubmit", "", a.eventPayload("UserPromptSubmit", ev))
 		})
 		a.ext.On("turn_end", func(ev ext.Event) {
-			a.event("Stop", map[string]any{"hook_event_name": "Stop", "cwd": a.cwd, "stop_reason": ev.Stop, "error": ev.Error})
+			a.event("Stop", "", a.eventPayload("Stop", ev))
 		})
 		a.ext.On("tool_call", func(ev ext.Event) {
-			a.event("Notification", map[string]any{"hook_event_name": "Notification", "cwd": a.cwd, "tool_name": ev.ToolName, "tool_input": json.RawMessage(ev.ToolArgs)})
+			a.event("Notification", ev.ToolName, a.eventPayload("Notification", ev))
+		})
+		a.ext.On("tool_result", func(ev ext.Event) {
+			a.event("PostToolUse", ev.ToolName, a.eventPayload("PostToolUse", ev))
+		})
+		a.ext.On("tool_confirmation_requested", func(ev ext.Event) {
+			a.event("PermissionRequest", ev.ToolName, a.eventPayload("PermissionRequest", ev))
+		})
+		a.ext.On("permission_decision", func(ev ext.Event) {
+			a.event("PermissionRequest", ev.ToolName, a.eventPayload("PermissionRequest", ev))
 		})
 		a.ext.On("assistant_message", func(ev ext.Event) {
-			a.event("Notification", map[string]any{"hook_event_name": "Notification", "cwd": a.cwd, "message": ev.Text})
+			a.event("Notification", "", a.eventPayload("Notification", ev))
+		})
+		a.ext.On("session_end", func(ev ext.Event) {
+			a.event("SessionEnd", "", a.eventPayload("SessionEnd", ev))
+		})
+		a.ext.On("pre_compact", func(ev ext.Event) {
+			a.event("PreCompact", "", a.eventPayload("PreCompact", ev))
+		})
+		a.ext.On("post_compact", func(ev ext.Event) {
+			a.event("PostCompact", "", a.eventPayload("PostCompact", ev))
+		})
+		a.ext.On("subagent_start", func(ev ext.Event) {
+			a.event("SubagentStart", "", a.eventPayload("SubagentStart", ev))
+		})
+		a.ext.On("subagent_stop", func(ev ext.Event) {
+			a.event("SubagentStop", "", a.eventPayload("SubagentStop", ev))
 		})
 		a.ext.InterceptToolCall(func(toolName string, args json.RawMessage) (bool, string) {
 			return a.preTool(toolName, args)

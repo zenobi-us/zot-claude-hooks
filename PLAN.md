@@ -35,14 +35,14 @@ The Go implementation uses zot's extension SDK for protocol handling and impleme
 
 Track implementation against [discussion #170](https://github.com/patriceckhart/zot/discussions/170).
 
-- [ ] Add `user_prompt_submit` support when zot exposes the event.
-- [ ] Add `tool_result` support for `PostToolUse`.
-- [ ] Include the effective tool arguments and the final tool status.
-- [ ] Distinguish completed, failed, blocked, cancelled, and timed-out tool calls.
-- [ ] Add `session_end` support.
-- [ ] Add `pre_compact` and `post_compact` support.
-- [ ] Add `subagent_start` and `subagent_stop` support.
-- [ ] Add `permission_decision` support.
+- [x] Add `user_prompt_submit` support when zot exposes the event.
+- [x] Add `tool_result` support for `PostToolUse`.
+- [x] Include the effective tool arguments and the final tool status.
+- [x] Forward the SDK's execution status and `executed` flag for completed, failed, blocked, cancelled, and timed-out tool calls.
+- [x] Add `session_end` support.
+- [x] Add `pre_compact` and `post_compact` support.
+- [x] Add `subagent_start` and `subagent_stop` support.
+- [x] Add `permission_decision` support (forwarded as `PermissionRequest`).
 - [ ] Add synchronous prompt replacement or blocking after zot defines its semantics.
 - [ ] Add event ordering tests for blocked and cancelled tool calls.
 - [ ] Revisit fail-open behavior if zot adds a fail-closed policy mode.

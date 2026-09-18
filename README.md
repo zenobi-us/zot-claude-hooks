@@ -258,19 +258,19 @@ The compatibility matrix below shows how zot lifecycle events map to hook names 
 | zot event | Claude hook | zot-claude-hooks support |
 | --- | --- | --- |
 | `session_start` | `SessionStart` | Supported |
-| `user_prompt_submit` | `UserPromptSubmit` | Not supported: zot does not currently expose this event to extensions. |
+| `user_prompt_submit` | `UserPromptSubmit` | Supported; forwards the submitted prompt payload. |
 | `turn_start` | — | Available in zot, but there is no direct hook equivalent currently implemented. |
 | `tool_call` | `PreToolUse` | Supported synchronously; exit `2` or JSON `decision: "block"` prevents the call. |
-| `tool_result` | `PostToolUse` | Not supported: zot does not currently expose post-tool results to extensions. |
-| `tool_confirmation_requested` | `PermissionRequest` | Observable in zot, but not currently mapped to a hook. |
-| `permission_decision` | `PermissionRequest` | Not supported: zot does not currently expose the final permission decision. |
+| `tool_result` | `PostToolUse` | Supported; forwards effective arguments, execution status, result, and executed flag. |
+| `tool_confirmation_requested` | `PermissionRequest` | Supported; runs when zot requests confirmation. The same hook also receives the later `permission_decision` observation. |
+| `permission_decision` | `PermissionRequest` | Supported observationally; forwards the final decision and metadata. |
 | `turn_end` | `Stop` | Supported. Runs when a turn ends. |
 | `assistant_message` | `Notification` | Partially supported through the currently available notification-like events. |
-| `session_end` | `SessionEnd` | Not supported: zot does not currently expose session shutdown to extensions. |
-| `pre_compact` | `PreCompact` | Not supported. |
-| `post_compact` | — | Not supported. |
-| `subagent_start` | `SubagentStart` | Not supported. |
-| `subagent_stop` | `SubagentStop` | Not supported. |
+| `session_end` | `SessionEnd` | Supported; forwards the session shutdown reason. |
+| `pre_compact` | `PreCompact` | Supported; forwards compaction and token metadata. |
+| `post_compact` | — | Supported; forwards compaction completion metadata. |
+| `subagent_start` | `SubagentStart` | Supported; forwards agent identity and run metadata. |
+| `subagent_stop` | `SubagentStop` | Supported; forwards agent status and error metadata. |
 
 The current implementation supports these Claude-style event names:
 
@@ -280,6 +280,12 @@ The current implementation supports these Claude-style event names:
 | `SessionStart` | `session_start` | Runs when the extension session starts. |
 | `Stop` | `turn_end` | Runs when a turn ends. |
 | `Notification` | `tool_call` and `assistant_message` events | Runs for the currently available notification-like events. |
+| `PostToolUse` | `tool_result` | Runs after a tool result and receives effective arguments plus final status. |
+| `PermissionRequest` | `tool_confirmation_requested` and `permission_decision` | Runs for permission request and final decision observations. |
+| `UserPromptSubmit` | `user_prompt_submit` | Runs when a user prompt is submitted. |
+| `SessionEnd` | `session_end` | Runs when the session ends. |
+| `PreCompact` / `PostCompact` | `pre_compact` / `post_compact` | Runs around context compaction. |
+| `SubagentStart` / `SubagentStop` | `subagent_start` / `subagent_stop` | Runs around subagent lifecycle events. |
 
 `PreToolUse` receives a payload such as:
 
