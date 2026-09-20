@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -22,7 +24,26 @@ func TestPersistedEnvironmentAcceptsSafeAssignments(t *testing.T) {
 	}
 }
 
-func TestPersistedEnvironmentRejectsExecutableSyntaxAndMalformedEntries(t *testing.T) {
+func TestManifestIncludesPersistenceSource(t *testing.T) {
+	data, err := os.ReadFile("extension.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range manifest.Args {
+		if arg == "persistence.go" {
+			return
+		}
+	}
+	t.Fatalf("manifest args = %#v, want persistence.go", manifest.Args)
+}
+
+func TestPersistedEnvironmentRejectsExecutableSyntaxMalformedAndDangerousNames(t *testing.T) {
 	state := newHookEnvironmentState(t.TempDir(), "session-a")
 	if err := state.persist(strings.Join([]string{
 		"GOOD=kept",
@@ -31,6 +52,12 @@ func TestPersistedEnvironmentRejectsExecutableSyntaxAndMalformedEntries(t *testi
 		"REDIRECT=one>two",
 		"BROKEN",
 		"1BAD=value",
+		"LD_PRELOAD=/tmp/evil.so",
+		"BASH_ENV=/tmp/evil.sh",
+		"ENV=/tmp/evil.sh",
+		"PATH=/tmp/bin",
+		"SHELL=/tmp/evil-shell",
+		"ZOT_ENV_FILE=/tmp/other-file",
 		"", // empty lines are allowed.
 	}, "\n")); err != nil {
 		t.Fatal(err)
@@ -38,10 +65,39 @@ func TestPersistedEnvironmentRejectsExecutableSyntaxAndMalformedEntries(t *testi
 	if got := state.values["GOOD"]; got != "kept" {
 		t.Fatalf("GOOD = %q, want kept", got)
 	}
-	for _, name := range []string{"BAD", "PIPE", "REDIRECT", "BROKEN", "1BAD"} {
+	for _, name := range []string{"BAD", "PIPE", "REDIRECT", "BROKEN", "1BAD", "LD_PRELOAD", "BASH_ENV", "ENV", "PATH", "SHELL", "ZOT_ENV_FILE"} {
 		if _, ok := state.values[name]; ok {
 			t.Fatalf("rejected assignment %s was accepted", name)
 		}
+	}
+}
+
+func TestZotEnvironmentFileIsSessionStartOnlyAndNotDuplicated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses sh")
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "output")
+	a := &app{cwd: project, hooks: []hook{
+		{Event: "SessionStart", Command: "printf '%s' \"$ZOT_ENV_FILE\" > " + output, Timeout: defaultTimeout},
+		{Event: "Notification", Command: "printf '%s' \"$ZOT_ENV_FILE\" > " + output, Timeout: defaultTimeout},
+	}}
+	t.Setenv("ZOT_ENV_FILE", "inherited-stale")
+	a.event("SessionStart", "", map[string]any{"session_id": "session-a"})
+	startValue, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(startValue) == "" || string(startValue) == "inherited-stale" {
+		t.Fatalf("SessionStart ZOT_ENV_FILE = %q, want one current file path", startValue)
+	}
+	a.event("Notification", "", map[string]any{})
+	laterValue, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(laterValue) != "" {
+		t.Fatalf("later hook ZOT_ENV_FILE = %q, want empty", laterValue)
 	}
 }
 
@@ -110,6 +166,26 @@ func TestPersistedEnvironmentOverridesInheritedValueOnlyForLaterHook(t *testing.
 	got := appendPersistedEnvironment([]string{"PERSISTED=old", "OTHER=value"}, state)
 	if values := environmentValue(got, "PERSISTED"); len(values) != 1 || values[0] != "new" {
 		t.Fatalf("persisted environment = %#v, want one new value", values)
+	}
+}
+
+func TestPersistedEnvironmentStateIsSafeForConcurrentCallbacks(t *testing.T) {
+	state := newHookEnvironmentState(t.TempDir(), "session-a")
+	var wait sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wait.Add(2)
+		go func(i int) {
+			defer wait.Done()
+			_ = state.persist("VALUE=" + string(rune('a'+i)) + "\n")
+		}(i)
+		go func() {
+			defer wait.Done()
+			state.refresh()
+		}()
+	}
+	wait.Wait()
+	if got := state.env(); len(got) > 1 {
+		t.Fatalf("concurrent state values = %#v, want at most one value", got)
 	}
 }
 

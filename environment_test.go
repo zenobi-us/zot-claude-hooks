@@ -122,6 +122,19 @@ func TestBuildHookEnvironmentPreservesInheritedValuesAndOwnsProjectDirectories(t
 	}
 }
 
+func TestBuildHookEnvironmentScrubsInheritedEnvironmentFileAndDuplicates(t *testing.T) {
+	parent := []string{"ZOT_ENV_FILE=stale", "ZOT_ENV_FILE=duplicate", "CI=1"}
+
+	got := buildHookEnvironment(parent, "/project")
+
+	if values := environmentValue(got, "ZOT_ENV_FILE"); len(values) != 0 {
+		t.Fatalf("ZOT_ENV_FILE entries = %#v, want absent", values)
+	}
+	if values := environmentValue(got, "CI"); len(values) != 1 || values[0] != "1" {
+		t.Fatalf("CI entries = %#v, want inherited value", values)
+	}
+}
+
 func TestBuildHookEnvironmentAddsVerifiedSessionAndReplacesInheritedClaudeAlias(t *testing.T) {
 	parent := []string{
 		"ZOT_SESSION_ID=stale",

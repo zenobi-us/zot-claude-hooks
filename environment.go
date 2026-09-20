@@ -5,6 +5,7 @@ import "strings"
 var ownedHookEnvironmentKeys = map[string]struct{}{
 	"ZOT_PROJECT_DIR":    {},
 	"CLAUDE_PROJECT_DIR": {},
+	"ZOT_ENV_FILE":       {},
 }
 
 // HookRuntime contains runtime identities that the zot SDK exposes with a

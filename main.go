@@ -211,8 +211,10 @@ func runHookWithEnvironment(ctx context.Context, h hook, payload map[string]any,
 		parent = appendPersistedEnvironment(parent, state)
 	}
 	command.Env = buildHookEnvironmentWithRuntime(parent, projectDir, runtimeEnv, h.SourceContext)
-	if exposeEnvironmentFile && state != nil && state.file != "" {
-		command.Env = append(command.Env, "ZOT_ENV_FILE="+state.file)
+	if exposeEnvironmentFile {
+		if file := state.environmentFile(); file != "" {
+			command.Env = append(command.Env, "ZOT_ENV_FILE="+file)
+		}
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
