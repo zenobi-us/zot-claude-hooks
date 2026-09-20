@@ -50,6 +50,8 @@ type app struct {
 
 	runtimeMu sync.RWMutex
 	runtime   HookRuntime
+	envMu     sync.Mutex
+	envState  *hookEnvironmentState
 
 	panelMode        string
 	panelEvent       string
@@ -192,6 +194,10 @@ func runHookWithDirectories(ctx context.Context, h hook, payload map[string]any,
 }
 
 func runHookWithRuntime(ctx context.Context, h hook, payload map[string]any, processDir, projectDir string, runtimeEnv HookRuntime) hookResult {
+	return runHookWithEnvironment(ctx, h, payload, processDir, projectDir, runtimeEnv, nil, false)
+}
+
+func runHookWithEnvironment(ctx context.Context, h hook, payload map[string]any, processDir, projectDir string, runtimeEnv HookRuntime, state *hookEnvironmentState, exposeEnvironmentFile bool) hookResult {
 	ctx, cancel := context.WithTimeout(ctx, h.Timeout)
 	defer cancel()
 	shell, args := "sh", []string{"-c", h.Command}
@@ -200,7 +206,14 @@ func runHookWithRuntime(ctx context.Context, h hook, payload map[string]any, pro
 	}
 	command := exec.CommandContext(ctx, shell, args...)
 	command.Dir = processDir
-	command.Env = buildHookEnvironmentWithRuntime(os.Environ(), projectDir, runtimeEnv, h.SourceContext)
+	parent := os.Environ()
+	if state != nil {
+		parent = appendPersistedEnvironment(parent, state)
+	}
+	command.Env = buildHookEnvironmentWithRuntime(parent, projectDir, runtimeEnv, h.SourceContext)
+	if exposeEnvironmentFile && state != nil && state.file != "" {
+		command.Env = append(command.Env, "ZOT_ENV_FILE="+state.file)
+	}
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
 	var stdout, stderr strings.Builder
@@ -257,8 +270,11 @@ func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	a.runtimeMu.RLock()
 	runtime := a.runtime
 	a.runtimeMu.RUnlock()
+	a.envMu.Lock()
+	state := a.envState
+	a.envMu.Unlock()
 	for _, h := range a.forEvent("PreToolUse", toolName) {
-		result := runHookWithRuntime(context.Background(), h, payload, a.cwd, a.cwd, runtime)
+		result := runHookWithEnvironment(context.Background(), h, payload, a.cwd, a.cwd, runtime, state, false)
 		reason := "blocked by hook"
 		if result.Response != nil {
 			reason = stringsValue(result.Response["reason"], reason)
@@ -284,6 +300,14 @@ func payloadDirectory(payload map[string]any, fallback string) string {
 func (a *app) event(event, toolName string, payload map[string]any) {
 	processDir := payloadDirectory(payload, a.cwd)
 	runtime := HookRuntime{SessionID: stringsValue(payload["session_id"], "")}
+	if event == "SessionStart" {
+		a.envMu.Lock()
+		if a.envState != nil {
+			a.envState.close()
+		}
+		a.envState = newHookEnvironmentState(a.cwd, runtime.SessionID)
+		a.envMu.Unlock()
+	}
 	if event == "SubagentStart" || event == "SubagentStop" {
 		runtime.ChildSession = stringsValue(payload["agent_id"], "")
 	}
@@ -292,13 +316,25 @@ func (a *app) event(event, toolName string, payload map[string]any) {
 		a.runtime.SessionID = runtime.SessionID
 		a.runtimeMu.Unlock()
 	}
+	a.envMu.Lock()
+	state := a.envState
+	a.envMu.Unlock()
 	for _, h := range a.forEvent(event, toolName) {
-		_ = runHookWithRuntime(context.Background(), h, payload, processDir, a.cwd, runtime)
+		_ = runHookWithEnvironment(context.Background(), h, payload, processDir, a.cwd, runtime, state, event == "SessionStart")
+		if event == "SessionStart" && state != nil {
+			state.refresh()
+		}
 	}
 	if event == "SessionEnd" {
 		a.runtimeMu.Lock()
 		a.runtime = HookRuntime{}
 		a.runtimeMu.Unlock()
+		a.envMu.Lock()
+		if a.envState != nil {
+			a.envState.close()
+			a.envState = nil
+		}
+		a.envMu.Unlock()
 	}
 }
 

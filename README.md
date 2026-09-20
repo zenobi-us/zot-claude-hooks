@@ -192,6 +192,27 @@ Lifecycle events expose the persisted or runtime-generated zot conversation ID a
 
 When zot does not provide a session or child identity, the extension does not invent one. Existing inherited values remain unchanged. When zot provides a value, the extension replaces inherited values for that owned variable. Command hooks read these variables through the selected shell; event data is sent as JSON on standard input. The extension never logs these environment values.
 
+#### Safe hook environment persistence
+
+`SessionStart` hooks may persist safe assignments for later hook processes. Zot
+creates a private, session-scoped file and exposes its path as `ZOT_ENV_FILE`
+only to those `SessionStart` processes. Zot does not set `CLAUDE_ENV_FILE`,
+because it does not claim Claude's environment-file contract.
+
+Write one assignment per line using `NAME=VALUE`. Names must use shell
+identifier characters. Zot accepts values as data and rejects malformed lines
+and shell execution characters, including command substitution, redirects,
+pipelines, and separators. Zot parses the file after each `SessionStart` hook;
+it never sources the file or executes its contents. Accepted values are added
+to later hook processes, but never to zot's own process environment.
+
+The state belongs to the active zot process, project, and session. A new
+`SessionStart` clears the previous state. `SessionEnd` clears and removes the
+file after its hooks run. A process restart starts with no persisted state.
+Only `SessionStart` can write the state. `PreToolUse`, `Stop`, and
+`Notification` can read accepted values from earlier `SessionStart` hooks.
+Malformed assignments are ignored.
+
 ### Run the test suite
 
 Run the Go tests:
