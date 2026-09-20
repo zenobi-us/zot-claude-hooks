@@ -2,11 +2,76 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/patriceckhart/zot/packages/agent/ext"
 )
+
+func TestEventPayloadUsesEventDirectoryWhenAvailable(t *testing.T) {
+	a := &app{cwd: "/tmp/project"}
+	for _, event := range []string{"SessionStart", "Stop", "Notification"} {
+		payload := a.eventPayload(event, ext.Event{CWD: "/tmp/event"})
+		if payload["cwd"] != "/tmp/event" {
+			t.Fatalf("%s payload cwd = %q, want event directory", event, payload["cwd"])
+		}
+	}
+}
+
+func TestEventPayloadFallsBackToProjectDirectory(t *testing.T) {
+	a := &app{cwd: "/tmp/project"}
+	for _, event := range []string{"PreToolUse", "SessionStart", "Stop", "Notification"} {
+		payload := a.eventPayload(event, ext.Event{})
+		if payload["cwd"] != "/tmp/project" {
+			t.Fatalf("%s payload cwd = %q, want project directory", event, payload["cwd"])
+		}
+	}
+}
+
+func TestEventRunsHookInEventDirectoryWithProjectEnvironment(t *testing.T) {
+	projectDir := t.TempDir()
+	eventDir := t.TempDir()
+	output := filepath.Join(t.TempDir(), "hook-output")
+	command := fmt.Sprintf("{ printf '%%s|%%s|%%s\\n' \"$PWD\" \"$ZOT_PROJECT_DIR\" \"$CLAUDE_PROJECT_DIR\"; cat; } > %q", output)
+	a := &app{cwd: projectDir, hooks: []hook{{Event: "SessionStart", Command: command, Timeout: defaultTimeout}}}
+
+	a.event("SessionStart", "", map[string]any{"hook_event_name": "SessionStart", "cwd": eventDir})
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.SplitN(string(data), "\n", 2)
+	want := eventDir + "|" + projectDir + "|" + projectDir
+	if len(lines) != 2 || lines[0] != want || !strings.Contains(lines[1], `"cwd":"`+eventDir+`"`) {
+		t.Fatalf("hook output = %q, want process directory, project variables, and event cwd", string(data))
+	}
+}
+
+func TestPreToolUsesProjectDirectoryForProcessAndPayload(t *testing.T) {
+	projectDir := t.TempDir()
+	output := filepath.Join(t.TempDir(), "hook-output")
+	command := fmt.Sprintf("{ printf '%%s|%%s|%%s\\n' \"$PWD\" \"$ZOT_PROJECT_DIR\" \"$CLAUDE_PROJECT_DIR\"; cat; } > %q", output)
+	a := &app{cwd: projectDir, hooks: []hook{{Event: "PreToolUse", MatcherRE: regexp.MustCompile(`.*`), Command: command, Timeout: defaultTimeout}}}
+
+	allowed, reason := a.preTool("Bash", json.RawMessage(`{"command":"pwd"}`))
+	if !allowed || reason != "" {
+		t.Fatalf("preTool = %t, %q; want allowed", allowed, reason)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.SplitN(string(data), "\n", 2)
+	want := projectDir + "|" + projectDir + "|" + projectDir
+	if len(lines) != 2 || lines[0] != want || !strings.Contains(lines[1], `"cwd":"`+projectDir+`"`) {
+		t.Fatalf("hook output = %q, want project directory for process, variables, and payload cwd", string(data))
+	}
+}
 
 func TestEventPayloadIncludesEffectiveToolResultDetails(t *testing.T) {
 	a := &app{cwd: "/tmp/project"}

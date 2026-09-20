@@ -47,10 +47,11 @@ Claude Code documents these path variables and placeholders:
 
 For zot, the first implementation must define this distinction:
 
-- `CLAUDE_PROJECT_DIR` means the project directory known by the zot host.
+- `CLAUDE_PROJECT_DIR` and `ZOT_PROJECT_DIR` mean the project directory known by the zot host.
 - Hook JSON `cwd` and the command working directory mean the active directory for the event.
+- When an event has no `CWD`, the project directory is the fallback for both event values.
 
-Until zot exposes a separate session-root value, the current host `CWD` is the best available value for both.
+The pinned zot SDK provides `HostInfo.CWD` for the session project directory and `Event.CWD` for the active event directory.
 
 **Confidence:** High for Claude behavior. Medium for the zot mapping until the host API exposes separate session-root and event-cwd values.
 
@@ -234,11 +235,7 @@ type HookContext struct {
 }
 ```
 
-Until zot provides a separate session-root value:
-
-- use the host project CWD for `ZOT_PROJECT_DIR` and `CLAUDE_PROJECT_DIR`;
-- use the event CWD for `command.Dir` and payload `cwd` when available;
-- use the project CWD as a fallback.
+Use the host project CWD for `ZOT_PROJECT_DIR` and `CLAUDE_PROJECT_DIR`. Use `Event.CWD` for `command.Dir` and payload `cwd` when it is available. Use the host project CWD as the fallback when it is not available.
 
 Do not silently use `os.Getwd()`. The extension can run from a different directory than the active zot project.
 

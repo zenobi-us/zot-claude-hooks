@@ -173,6 +173,10 @@ func matches(h hook, toolName string) bool {
 }
 
 func runHook(ctx context.Context, h hook, payload map[string]any, cwd string) hookResult {
+	return runHookWithDirectories(ctx, h, payload, cwd, cwd)
+}
+
+func runHookWithDirectories(ctx context.Context, h hook, payload map[string]any, processDir, projectDir string) hookResult {
 	ctx, cancel := context.WithTimeout(ctx, h.Timeout)
 	defer cancel()
 	shell, args := "sh", []string{"-c", h.Command}
@@ -180,8 +184,8 @@ func runHook(ctx context.Context, h hook, payload map[string]any, cwd string) ho
 		shell, args = "cmd.exe", []string{"/d", "/s", "/c", h.Command}
 	}
 	command := exec.CommandContext(ctx, shell, args...)
-	command.Dir = cwd
-	command.Env = buildHookEnvironment(os.Environ(), cwd)
+	command.Dir = processDir
+	command.Env = buildHookEnvironment(os.Environ(), projectDir)
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
 	var stdout, stderr strings.Builder
@@ -248,9 +252,21 @@ func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	return true, ""
 }
 
+func effectiveEventDirectory(projectDir, eventDir string) string {
+	if eventDir != "" {
+		return eventDir
+	}
+	return projectDir
+}
+
+func payloadDirectory(payload map[string]any, fallback string) string {
+	return effectiveEventDirectory(fallback, stringsValue(payload["cwd"], ""))
+}
+
 func (a *app) event(event, toolName string, payload map[string]any) {
+	processDir := payloadDirectory(payload, a.cwd)
 	for _, h := range a.forEvent(event, toolName) {
-		_ = runHook(context.Background(), h, payload, a.cwd)
+		_ = runHookWithDirectories(context.Background(), h, payload, processDir, a.cwd)
 	}
 }
 
@@ -260,7 +276,7 @@ func (a *app) event(event, toolName string, payload map[string]any) {
 func (a *app) eventPayload(hookEvent string, ev ext.Event) map[string]any {
 	payload := map[string]any{
 		"hook_event_name": hookEvent,
-		"cwd":             a.cwd,
+		"cwd":             effectiveEventDirectory(a.cwd, ev.CWD),
 		"session_id":      ev.SessionID,
 		"agent_run_id":    ev.AgentRunID,
 		"sequence":        ev.Sequence,
