@@ -44,7 +44,7 @@ func buildHookEnvironmentWithRuntime(parent []string, projectDir string, runtime
 	}
 	if runtime.SessionID != "" {
 		owned["ZOT_SESSION_ID"] = struct{}{}
-		owned["CLAUDE_SESSION_ID"] = struct{}{}
+		owned["CLAUDE_CODE_SESSION_ID"] = struct{}{}
 	}
 	if runtime.ChildSession != "" {
 		owned["ZOT_CHILD_SESSION"] = struct{}{}
@@ -69,7 +69,7 @@ func buildHookEnvironmentWithRuntime(parent []string, projectDir string, runtime
 		environment = append(environment, "ZOT_EXTENSION_ROOT="+source.Root)
 	}
 	if runtime.SessionID != "" {
-		environment = append(environment, "ZOT_SESSION_ID="+runtime.SessionID, "CLAUDE_SESSION_ID="+runtime.SessionID)
+		environment = append(environment, "ZOT_SESSION_ID="+runtime.SessionID, "CLAUDE_CODE_SESSION_ID="+runtime.SessionID)
 	}
 	if runtime.ChildSession != "" {
 		environment = append(environment, "ZOT_CHILD_SESSION="+runtime.ChildSession)

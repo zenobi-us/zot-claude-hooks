@@ -122,31 +122,34 @@ func TestBuildHookEnvironmentPreservesInheritedValuesAndOwnsProjectDirectories(t
 	}
 }
 
-func TestBuildHookEnvironmentAddsVerifiedSessionAndClaudeAlias(t *testing.T) {
+func TestBuildHookEnvironmentAddsVerifiedSessionAndReplacesInheritedClaudeAlias(t *testing.T) {
 	parent := []string{
 		"ZOT_SESSION_ID=stale",
-		"CLAUDE_SESSION_ID=stale-claude",
+		"CLAUDE_CODE_SESSION_ID=stale-claude",
 	}
 
 	got := buildHookEnvironmentWithRuntime(parent, "/project", HookRuntime{SessionID: "session-123"})
 
-	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_SESSION_ID"} {
+	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_CODE_SESSION_ID"} {
 		if values := environmentValue(got, name); len(values) != 1 || values[0] != "session-123" {
 			t.Fatalf("%s entries = %#v, want [session-123]", name, values)
 		}
+	}
+	if values := environmentValue(got, "CLAUDE_SESSION_ID"); len(values) != 0 {
+		t.Fatalf("incorrect Claude alias entries = %#v, want absent", values)
 	}
 }
 
 func TestBuildHookEnvironmentLeavesSessionVariablesInheritedWhenUnavailable(t *testing.T) {
 	parent := []string{
 		"ZOT_SESSION_ID=inherited",
-		"CLAUDE_SESSION_ID=inherited-claude",
+		"CLAUDE_CODE_SESSION_ID=inherited-claude",
 		"ZOT_CHILD_SESSION=inherited-child",
 	}
 
 	got := buildHookEnvironmentWithRuntime(parent, "/project", HookRuntime{})
 
-	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_SESSION_ID", "ZOT_CHILD_SESSION"} {
+	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "ZOT_CHILD_SESSION"} {
 		if values := environmentValue(got, name); len(values) != 1 || values[0] != environmentValue(parent, name)[0] {
 			t.Fatalf("%s entries = %#v, want inherited value", name, values)
 		}
@@ -202,7 +205,7 @@ func TestRunHookUsesVerifiedRuntimeEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell expansion test uses sh")
 	}
-	hook := hook{Command: `printf '%s|%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_SESSION_ID" "$ZOT_CHILD_SESSION"`, Timeout: defaultTimeout}
+	hook := hook{Command: `printf '%s|%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_CODE_SESSION_ID" "$ZOT_CHILD_SESSION"`, Timeout: defaultTimeout}
 
 	result := runHookWithRuntime(context.Background(), hook, nil, t.TempDir(), "/project", HookRuntime{SessionID: "session-123", ChildSession: "agent-123"})
 	if result.Code != 0 || result.Output != "session-123|session-123|agent-123" {
@@ -215,8 +218,8 @@ func TestRunHookPreservesInheritedRuntimeWhenUnavailable(t *testing.T) {
 		t.Skip("shell expansion test uses sh")
 	}
 	t.Setenv("ZOT_SESSION_ID", "inherited-session")
-	t.Setenv("CLAUDE_SESSION_ID", "inherited-claude")
-	hook := hook{Command: `printf '%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_SESSION_ID"`, Timeout: defaultTimeout}
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "inherited-claude")
+	hook := hook{Command: `printf '%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_CODE_SESSION_ID"`, Timeout: defaultTimeout}
 
 	result := runHookWithRuntime(context.Background(), hook, nil, t.TempDir(), "/project", HookRuntime{})
 	if result.Code != 0 || result.Output != "inherited-session|inherited-claude" {

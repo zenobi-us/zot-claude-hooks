@@ -295,6 +295,11 @@ func (a *app) event(event, toolName string, payload map[string]any) {
 	for _, h := range a.forEvent(event, toolName) {
 		_ = runHookWithRuntime(context.Background(), h, payload, processDir, a.cwd, runtime)
 	}
+	if event == "SessionEnd" {
+		a.runtimeMu.Lock()
+		a.runtime = HookRuntime{}
+		a.runtimeMu.Unlock()
+	}
 }
 
 // eventPayload translates the SDK event into the Claude hook envelope while
