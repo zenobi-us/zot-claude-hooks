@@ -181,6 +181,7 @@ func runHook(ctx context.Context, h hook, payload map[string]any, cwd string) ho
 	}
 	command := exec.CommandContext(ctx, shell, args...)
 	command.Dir = cwd
+	command.Env = buildHookEnvironment(os.Environ(), cwd)
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
 	var stdout, stderr strings.Builder
