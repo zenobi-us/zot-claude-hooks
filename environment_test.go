@@ -122,6 +122,57 @@ func TestBuildHookEnvironmentPreservesInheritedValuesAndOwnsProjectDirectories(t
 	}
 }
 
+func TestBuildHookEnvironmentAddsVerifiedSessionAndClaudeAlias(t *testing.T) {
+	parent := []string{
+		"ZOT_SESSION_ID=stale",
+		"CLAUDE_SESSION_ID=stale-claude",
+	}
+
+	got := buildHookEnvironmentWithRuntime(parent, "/project", HookRuntime{SessionID: "session-123"})
+
+	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_SESSION_ID"} {
+		if values := environmentValue(got, name); len(values) != 1 || values[0] != "session-123" {
+			t.Fatalf("%s entries = %#v, want [session-123]", name, values)
+		}
+	}
+}
+
+func TestBuildHookEnvironmentLeavesSessionVariablesInheritedWhenUnavailable(t *testing.T) {
+	parent := []string{
+		"ZOT_SESSION_ID=inherited",
+		"CLAUDE_SESSION_ID=inherited-claude",
+		"ZOT_CHILD_SESSION=inherited-child",
+	}
+
+	got := buildHookEnvironmentWithRuntime(parent, "/project", HookRuntime{})
+
+	for _, name := range []string{"ZOT_SESSION_ID", "CLAUDE_SESSION_ID", "ZOT_CHILD_SESSION"} {
+		if values := environmentValue(got, name); len(values) != 1 || values[0] != environmentValue(parent, name)[0] {
+			t.Fatalf("%s entries = %#v, want inherited value", name, values)
+		}
+	}
+}
+
+func TestBuildHookEnvironmentAddsChildSessionOnlyWhenVerified(t *testing.T) {
+	parent := []string{"ZOT_CHILD_SESSION=stale"}
+
+	got := buildHookEnvironmentWithRuntime(parent, "/project", HookRuntime{ChildSession: "agent-123"})
+
+	if values := environmentValue(got, "ZOT_CHILD_SESSION"); len(values) != 1 || values[0] != "agent-123" {
+		t.Fatalf("ZOT_CHILD_SESSION entries = %#v, want [agent-123]", values)
+	}
+}
+
+func TestBuildHookEnvironmentDoesNotExportUnsupportedRuntimeValues(t *testing.T) {
+	got := buildHookEnvironmentWithRuntime(nil, "/project", HookRuntime{SessionID: "session-123", ChildSession: "agent-123"})
+
+	for _, name := range []string{"ZOT_EFFORT", "ZOT_REMOTE", "ZOT_BRIDGE", "ZOT_MESSAGE", "ZOT_PID", "ZOT_SHELL"} {
+		if values := environmentValue(got, name); len(values) != 0 {
+			t.Fatalf("invented %s = %#v", name, values)
+		}
+	}
+}
+
 func TestBuildHookEnvironmentPreservesDuplicateNonOwnedEntriesInOrder(t *testing.T) {
 	parent := []string{
 		"PATH=/first/bin",
@@ -144,6 +195,32 @@ func TestBuildHookEnvironmentPreservesDuplicateNonOwnedEntriesInOrder(t *testing
 		if got[index] != want[index] {
 			t.Fatalf("buildHookEnvironment[%d] = %q, want %q; got %#v", index, got[index], want[index], got)
 		}
+	}
+}
+
+func TestRunHookUsesVerifiedRuntimeEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell expansion test uses sh")
+	}
+	hook := hook{Command: `printf '%s|%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_SESSION_ID" "$ZOT_CHILD_SESSION"`, Timeout: defaultTimeout}
+
+	result := runHookWithRuntime(context.Background(), hook, nil, t.TempDir(), "/project", HookRuntime{SessionID: "session-123", ChildSession: "agent-123"})
+	if result.Code != 0 || result.Output != "session-123|session-123|agent-123" {
+		t.Fatalf("runHookWithRuntime = code %d, output %q; want verified runtime values", result.Code, result.Output)
+	}
+}
+
+func TestRunHookPreservesInheritedRuntimeWhenUnavailable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell expansion test uses sh")
+	}
+	t.Setenv("ZOT_SESSION_ID", "inherited-session")
+	t.Setenv("CLAUDE_SESSION_ID", "inherited-claude")
+	hook := hook{Command: `printf '%s|%s' "$ZOT_SESSION_ID" "$CLAUDE_SESSION_ID"`, Timeout: defaultTimeout}
+
+	result := runHookWithRuntime(context.Background(), hook, nil, t.TempDir(), "/project", HookRuntime{})
+	if result.Code != 0 || result.Output != "inherited-session|inherited-claude" {
+		t.Fatalf("runHookWithRuntime = code %d, output %q; want inherited runtime values", result.Code, result.Output)
 	}
 }
 

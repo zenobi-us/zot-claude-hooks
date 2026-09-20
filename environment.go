@@ -7,6 +7,13 @@ var ownedHookEnvironmentKeys = map[string]struct{}{
 	"CLAUDE_PROJECT_DIR": {},
 }
 
+// HookRuntime contains runtime identities that the zot SDK exposes with a
+// defined meaning. Empty values mean that zot did not provide that value.
+type HookRuntime struct {
+	SessionID    string
+	ChildSession string
+}
+
 // HookSource identifies the file that supplied a hook. Extension roots are
 // scoped to hooks from that extension. Data and options stay unset because
 // zot has no persistent-data or option contract for these sources.
@@ -20,19 +27,29 @@ type HookSource struct {
 // buildHookEnvironment preserves the parent environment and replaces values
 // owned by the hook runner with values for the current project and source.
 func buildHookEnvironment(parent []string, projectDir string, sources ...HookSource) []string {
+	return buildHookEnvironmentWithRuntime(parent, projectDir, HookRuntime{}, sources...)
+}
+
+func buildHookEnvironmentWithRuntime(parent []string, projectDir string, runtime HookRuntime, sources ...HookSource) []string {
 	source := HookSource{}
 	if len(sources) > 0 {
 		source = sources[0]
 	}
-	owned := ownedHookEnvironmentKeys
+	owned := map[string]struct{}{}
+	for name := range ownedHookEnvironmentKeys {
+		owned[name] = struct{}{}
+	}
 	if source.Extension && source.Root != "" {
-		owned = map[string]struct{}{}
-		for name := range ownedHookEnvironmentKeys {
-			owned[name] = struct{}{}
-		}
 		owned["ZOT_EXTENSION_ROOT"] = struct{}{}
 	}
-	environment := make([]string, 0, len(parent)+len(owned)+1)
+	if runtime.SessionID != "" {
+		owned["ZOT_SESSION_ID"] = struct{}{}
+		owned["CLAUDE_SESSION_ID"] = struct{}{}
+	}
+	if runtime.ChildSession != "" {
+		owned["ZOT_CHILD_SESSION"] = struct{}{}
+	}
+	environment := make([]string, 0, len(parent)+len(owned)+3)
 	for _, entry := range parent {
 		name, _, hasValue := strings.Cut(entry, "=")
 		if !hasValue {
@@ -50,6 +67,12 @@ func buildHookEnvironment(parent []string, projectDir string, sources ...HookSou
 	)
 	if source.Extension && source.Root != "" {
 		environment = append(environment, "ZOT_EXTENSION_ROOT="+source.Root)
+	}
+	if runtime.SessionID != "" {
+		environment = append(environment, "ZOT_SESSION_ID="+runtime.SessionID, "CLAUDE_SESSION_ID="+runtime.SessionID)
+	}
+	if runtime.ChildSession != "" {
+		environment = append(environment, "ZOT_CHILD_SESSION="+runtime.ChildSession)
 	}
 	return environment
 }

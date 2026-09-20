@@ -188,7 +188,9 @@ Every hook inherits the complete environment of the zot process. The extension s
 
 Hooks loaded from an installed extension also receive `ZOT_EXTENSION_ROOT`, set to the owning extension directory. Project hooks do not receive this value unless it was already present in the inherited environment. Each hook gets the root of its own extension.
 
-Zot does not currently define persistent extension data or extension options. Therefore, it does not create `ZOT_EXTENSION_DATA` or `ZOT_EXTENSION_OPTION_<KEY>` values. Existing inherited values remain unchanged. Command hooks read these variables through the selected shell; event data is sent as JSON on standard input.
+Lifecycle events expose the persisted or runtime-generated zot conversation ID as `ZOT_SESSION_ID`. `CLAUDE_SESSION_ID` is an alias with the same value and lifecycle. Subagent lifecycle events expose the SDK `agent_id` as `ZOT_CHILD_SESSION`; this value is available only for `SubagentStart` and `SubagentStop` hooks. The SDK does not expose an effort value, remote or bridge identity, messaging channel, child PID, or shell contract, so the extension leaves `ZOT_EFFORT`, remote, bridge, messaging, PID, and shell variables unset. It also does not add a Claude alias for `ZOT_CHILD_SESSION`.
+
+When zot does not provide a session or child identity, the extension does not invent one. Existing inherited values remain unchanged. When zot provides a value, the extension replaces inherited values for that owned variable. Command hooks read these variables through the selected shell; event data is sent as JSON on standard input. The extension never logs these environment values.
 
 ### Run the test suite
 

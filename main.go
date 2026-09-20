@@ -48,6 +48,9 @@ type app struct {
 	hooks []hook
 	ext   *ext.Extension
 
+	runtimeMu sync.RWMutex
+	runtime   HookRuntime
+
 	panelMode        string
 	panelEvent       string
 	panelEventChoice int
@@ -185,6 +188,10 @@ func runHook(ctx context.Context, h hook, payload map[string]any, cwd string) ho
 }
 
 func runHookWithDirectories(ctx context.Context, h hook, payload map[string]any, processDir, projectDir string) hookResult {
+	return runHookWithRuntime(ctx, h, payload, processDir, projectDir, HookRuntime{})
+}
+
+func runHookWithRuntime(ctx context.Context, h hook, payload map[string]any, processDir, projectDir string, runtimeEnv HookRuntime) hookResult {
 	ctx, cancel := context.WithTimeout(ctx, h.Timeout)
 	defer cancel()
 	shell, args := "sh", []string{"-c", h.Command}
@@ -193,7 +200,7 @@ func runHookWithDirectories(ctx context.Context, h hook, payload map[string]any,
 	}
 	command := exec.CommandContext(ctx, shell, args...)
 	command.Dir = processDir
-	command.Env = buildHookEnvironment(os.Environ(), projectDir, h.SourceContext)
+	command.Env = buildHookEnvironmentWithRuntime(os.Environ(), projectDir, runtimeEnv, h.SourceContext)
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
 	var stdout, stderr strings.Builder
@@ -247,8 +254,11 @@ func (a *app) forEvent(event, toolName string) []hook {
 
 func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	payload := map[string]any{"hook_event_name": "PreToolUse", "cwd": a.cwd, "tool_name": toolName, "tool_input": json.RawMessage(input)}
+	a.runtimeMu.RLock()
+	runtime := a.runtime
+	a.runtimeMu.RUnlock()
 	for _, h := range a.forEvent("PreToolUse", toolName) {
-		result := runHook(context.Background(), h, payload, a.cwd)
+		result := runHookWithRuntime(context.Background(), h, payload, a.cwd, a.cwd, runtime)
 		reason := "blocked by hook"
 		if result.Response != nil {
 			reason = stringsValue(result.Response["reason"], reason)
@@ -273,8 +283,17 @@ func payloadDirectory(payload map[string]any, fallback string) string {
 
 func (a *app) event(event, toolName string, payload map[string]any) {
 	processDir := payloadDirectory(payload, a.cwd)
+	runtime := HookRuntime{SessionID: stringsValue(payload["session_id"], "")}
+	if event == "SubagentStart" || event == "SubagentStop" {
+		runtime.ChildSession = stringsValue(payload["agent_id"], "")
+	}
+	if runtime.SessionID != "" {
+		a.runtimeMu.Lock()
+		a.runtime.SessionID = runtime.SessionID
+		a.runtimeMu.Unlock()
+	}
 	for _, h := range a.forEvent(event, toolName) {
-		_ = runHookWithDirectories(context.Background(), h, payload, processDir, a.cwd)
+		_ = runHookWithRuntime(context.Background(), h, payload, processDir, a.cwd, runtime)
 	}
 }
 
