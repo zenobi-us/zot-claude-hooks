@@ -182,6 +182,14 @@ $ZOT_HOME/extensions/<extension-name>/hooks/*.json
 
 These files are loaded in deterministic extension-name and filename order. The current hook extension is excluded, and commands still run with the active project directory as their working directory. Use `/hooks locations` to inspect discovered extension hook files.
 
+### Hook process environment
+
+Every hook inherits the complete environment of the zot process. The extension sets `ZOT_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` to the host project directory, even when the hook process runs in an event directory.
+
+Hooks loaded from an installed extension also receive `ZOT_EXTENSION_ROOT`, set to the owning extension directory. Project hooks do not receive this value unless it was already present in the inherited environment. Each hook gets the root of its own extension.
+
+Zot does not currently define persistent extension data or extension options. Therefore, it does not create `ZOT_EXTENSION_DATA` or `ZOT_EXTENSION_OPTION_<KEY>` values. Existing inherited values remain unchanged. Command hooks read these variables through the selected shell; event data is sent as JSON on standard input.
+
 ### Run the test suite
 
 Run the Go tests:

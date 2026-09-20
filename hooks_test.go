@@ -13,6 +13,27 @@ import (
 	"github.com/patriceckhart/zot/packages/agent/ext"
 )
 
+func TestExtensionHookSourceCarriesOwningRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ZOT_HOME", root)
+	extensionRoot := filepath.Join(root, "extensions", "owner-a")
+	hooksDir := filepath.Join(extensionRoot, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDir, "hooks.json"), []byte(`{"hooks":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sources := extensionSources()
+	if len(sources) != 1 {
+		t.Fatalf("extensionSources() = %#v, want one source", sources)
+	}
+	if sources[0].Owner != "owner-a" || sources[0].Root != extensionRoot || !sources[0].Extension {
+		t.Fatalf("extension source = %#v, want owner root and extension marker", sources[0])
+	}
+}
+
 func TestEventPayloadUsesEventDirectoryWhenAvailable(t *testing.T) {
 	a := &app{cwd: "/tmp/project"}
 	for _, event := range []string{"SessionStart", "Stop", "Notification"} {

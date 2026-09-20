@@ -31,6 +31,7 @@ var hookEvents = []string{"PreToolUse", "SessionStart", "Stop", "Notification", 
 
 type hook struct {
 	Event, Command, Matcher, Source, Owner string
+	SourceContext                          HookSource
 	MatcherRE                              *regexp.Regexp
 	Timeout                                time.Duration
 }
@@ -124,12 +125,12 @@ func configPaths(cwd string) []string {
 	return result
 }
 
-func extensionSources() []struct{ path, owner string } {
+func extensionSources() []HookSource {
 	entries, err := os.ReadDir(filepath.Join(zotHome(), "extensions"))
 	if err != nil {
 		return nil
 	}
-	var result []struct{ path, owner string }
+	var result []HookSource
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == name {
 			continue
@@ -141,7 +142,10 @@ func extensionSources() []struct{ path, owner string } {
 		sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-				result = append(result, struct{ path, owner string }{filepath.Join(zotHome(), "extensions", entry.Name(), "hooks", file.Name()), entry.Name()})
+				result = append(result, HookSource{
+					Path:  filepath.Join(zotHome(), "extensions", entry.Name(), "hooks", file.Name()),
+					Owner: entry.Name(), Root: filepath.Join(zotHome(), "extensions", entry.Name()), Extension: true,
+				})
 			}
 		}
 	}
@@ -149,21 +153,25 @@ func extensionSources() []struct{ path, owner string } {
 }
 
 func loadHooks(cwd string) []hook {
-	var sources []struct{ path, owner string }
+	var sources []HookSource
 	for _, path := range configPaths(cwd) {
-		sources = append(sources, struct{ path, owner string }{path, ""})
+		sources = append(sources, HookSource{Path: path})
 	}
 	sources = append(sources, extensionSources()...)
 	var result []hook
 	for _, source := range sources {
-		data, err := os.ReadFile(source.path)
+		data, err := os.ReadFile(source.Path)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				logf("cannot read %s: %v", source.path, err)
+				logf("cannot read %s: %v", source.Path, err)
 			}
 			continue
 		}
-		result = append(result, parseHookDocument(data, source.path, source.owner)...)
+		loaded := parseHookDocument(data, source.Path, source.Owner)
+		for index := range loaded {
+			loaded[index].SourceContext = source
+		}
+		result = append(result, loaded...)
 	}
 	return result
 }
@@ -185,7 +193,7 @@ func runHookWithDirectories(ctx context.Context, h hook, payload map[string]any,
 	}
 	command := exec.CommandContext(ctx, shell, args...)
 	command.Dir = processDir
-	command.Env = buildHookEnvironment(os.Environ(), projectDir)
+	command.Env = buildHookEnvironment(os.Environ(), projectDir, h.SourceContext)
 	payloadBytes, _ := json.Marshal(payload)
 	command.Stdin = bytes.NewReader(payloadBytes)
 	var stdout, stderr strings.Builder
@@ -580,7 +588,7 @@ func (a *app) formatLocations() string {
 	if len(sources) > 0 {
 		b.WriteString("\n\nExtension hook files:")
 		for _, s := range sources {
-			b.WriteString("\n" + s.owner + ": " + s.path)
+			b.WriteString("\n" + s.Owner + ": " + s.Path)
 		}
 	}
 	b.WriteString("\n\nThe local hook command writes to: " + localConfigPath(a.cwd))
