@@ -11,7 +11,6 @@ var ownedHookEnvironmentKeys = map[string]struct{}{
 // owned by the hook runner with values for the current project.
 func buildHookEnvironment(parent []string, projectDir string) []string {
 	environment := make([]string, 0, len(parent)+len(ownedHookEnvironmentKeys))
-	positions := make(map[string]int, len(parent))
 	for _, entry := range parent {
 		name, _, hasValue := strings.Cut(entry, "=")
 		if !hasValue {
@@ -21,11 +20,6 @@ func buildHookEnvironment(parent []string, projectDir string) []string {
 		if _, owned := ownedHookEnvironmentKeys[name]; owned {
 			continue
 		}
-		if position, exists := positions[name]; exists {
-			environment[position] = entry
-			continue
-		}
-		positions[name] = len(environment)
 		environment = append(environment, entry)
 	}
 	environment = append(environment,

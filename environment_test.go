@@ -48,6 +48,31 @@ func TestBuildHookEnvironmentPreservesInheritedValuesAndOwnsProjectDirectories(t
 	}
 }
 
+func TestBuildHookEnvironmentPreservesDuplicateNonOwnedEntriesInOrder(t *testing.T) {
+	parent := []string{
+		"PATH=/first/bin",
+		"CI=first",
+		"CUSTOM=one",
+		"PATH=/second/bin",
+		"CI=second",
+		"CUSTOM=two",
+	}
+
+	got := buildHookEnvironment(parent, "/project")
+	want := append(append([]string{}, parent...),
+		"ZOT_PROJECT_DIR=/project",
+		"CLAUDE_PROJECT_DIR=/project",
+	)
+	if len(got) != len(want) {
+		t.Fatalf("buildHookEnvironment length = %d, want %d; got %#v", len(got), len(want), got)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("buildHookEnvironment[%d] = %q, want %q; got %#v", index, got[index], want[index], got)
+		}
+	}
+}
+
 func TestRunHookUsesInheritedEnvironmentAndProjectVariables(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell expansion test uses sh")
