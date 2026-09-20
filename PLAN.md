@@ -54,3 +54,5 @@ Track implementation against [discussion #170](https://github.com/patriceckhart/
 - Define whether invalid matchers disable one hook or the full file.
 
 The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local overrides, project Zot settings, project-local Zot overrides, `ZOT_HOOKS_PATH`, and installed extension hook files. `settings.json` files are now the supported configuration format.
+
+Environment compatibility is implemented and documented in the README. The contract preserves inherited variables, owns verified `ZOT_*` values, adds only matching Claude aliases, keeps extension values source-scoped, and uses a safe session-scoped persistence file for later hooks. The complete unit and end-to-end environment matrix is covered by the Go tests.

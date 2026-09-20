@@ -201,4 +201,31 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("unexpected JSON block result: actions=%s stdout=%s", result.actions, result.stdout)
 		}
 	})
+
+	t.Run("runs every current hook event with the compatibility environment", func(t *testing.T) {
+		result := runCase(t, "environment-events")
+		if result.exitCode != 0 {
+			t.Fatalf("zot exit code = %d, stderr = %s", result.exitCode, result.stderr)
+		}
+		seen := map[string]bool{}
+		for _, action := range jsonLines(t, result.actions) {
+			projectDir, projectOK := action["zot_project_dir"].(string)
+			claudeDir, claudeOK := action["claude_project_dir"].(string)
+			if !projectOK || !claudeOK || projectDir == "" || projectDir != claudeDir {
+				t.Fatalf("incompatible project environment: %#v", action)
+			}
+			payload, ok := action["payload"].(map[string]any)
+			if ok {
+				seen[payload["hook_event_name"].(string)] = true
+			}
+		}
+		for _, event := range []string{"SessionStart", "PreToolUse", "Notification", "Stop"} {
+			if !seen[event] {
+				t.Fatalf("event log does not contain %s: %s", event, result.actions)
+			}
+		}
+		if !strings.Contains(result.actions, `"hook_event_name":"PreToolUse"`) {
+			t.Fatalf("environment fixture did not record hook payloads: %s", result.actions)
+		}
+	})
 }

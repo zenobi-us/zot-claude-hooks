@@ -184,20 +184,37 @@ These files are loaded in deterministic extension-name and filename order. The c
 
 ### Hook process environment
 
+The hook environment has one compatibility rule: preserve the parent environment, then replace values owned by this extension. The extension never prints the complete environment or secret values.
+
+| Variable | Behaviour |
+| --- | --- |
+| `ZOT_PROJECT_DIR` | Supported. The zot host project directory. |
+| `CLAUDE_PROJECT_DIR` | Supported alias with the same value and lifecycle as `ZOT_PROJECT_DIR`. |
+| `ZOT_SESSION_ID` | Supported only when zot provides a session ID. |
+| `CLAUDE_CODE_SESSION_ID` | Set only as the matching alias for a verified `ZOT_SESSION_ID`. |
+| `ZOT_CHILD_SESSION` | Supported only for `SubagentStart` and `SubagentStop` when zot provides `agent_id`. |
+| `ZOT_EXTENSION_ROOT` | Set only for hooks loaded from an installed extension source. |
+| `ZOT_ENV_FILE` | Set only for `SessionStart` hooks. It points to zot's private persistence file. |
+
+All other variables are preserved when inherited, including `PATH`, `CI`, `TRACEPARENT`, custom `ZOT_*` values, and Claude variables that zot cannot reproduce. Unsupported variables are not synthesized. An unset variable stays unset; zot does not convert unknown state to an empty or false value. Owned variables replace stale inherited values and appear once.
+
 Every hook inherits the complete environment of the zot process. The extension sets `ZOT_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` to the host project directory, even when the hook process runs in an event directory.
 
 Hooks loaded from an installed extension also receive `ZOT_EXTENSION_ROOT`, set to the owning extension directory. Project hooks do not receive this value unless it was already present in the inherited environment. Each hook gets the root of its own extension.
 
 Lifecycle events expose the persisted or runtime-generated zot conversation ID as `ZOT_SESSION_ID`. `CLAUDE_CODE_SESSION_ID` is an alias with the same value and lifecycle. The extension replaces inherited values for both names when zot provides a verified session ID, and preserves inherited values when zot does not provide one. Cached session values are cleared after `session_end`. Subagent lifecycle events expose the SDK `agent_id` as `ZOT_CHILD_SESSION`; this value is available only for `SubagentStart` and `SubagentStop` hooks. The SDK does not expose an effort value, remote or bridge identity, messaging channel, child PID, or shell contract, so the extension leaves `ZOT_EFFORT`, remote, bridge, messaging, PID, and shell variables unset. It also does not add a Claude alias for `ZOT_CHILD_SESSION`.
 
-When zot does not provide a session or child identity, the extension does not invent one. Existing inherited values remain unchanged. When zot provides a value, the extension replaces inherited values for that owned variable. Command hooks read these variables through the selected shell; event data is sent as JSON on standard input. The extension never logs these environment values.
+When zot does not provide a session or child identity, the extension does not invent one. Existing inherited values remain unchanged. When zot provides a value, the extension replaces inherited values for that owned variable. Command hooks read these variables through the selected shell; `$ZOT_PROJECT_DIR` and `${CLAUDE_PROJECT_DIR}` are expanded by that shell. Event data is sent as JSON on standard input, and is not copied into environment variables. The extension never logs these environment values.
+
+Zot extensions are not Claude plugins. Project hooks do not receive extension variables unless the caller already inherited them. Installed extension hooks receive only their own `ZOT_EXTENSION_ROOT`; zot does not invent `ZOT_EXTENSION_DATA` or `ZOT_EXTENSION_OPTION_<KEY>`. Remote, bridge, messaging, PID, effort, shell, and other Claude-specific values are preserved only when inherited. Zot does not create false values for them.
 
 #### Safe hook environment persistence
 
 `SessionStart` hooks may persist safe assignments for later hook processes. Zot
 creates a private, session-scoped file and exposes its path as `ZOT_ENV_FILE`
 only to those `SessionStart` processes. Zot does not set `CLAUDE_ENV_FILE`,
-because it does not claim Claude's environment-file contract.
+because it does not claim Claude's environment-file contract. This is a zot
+extension contract, not a claim of Claude compatibility.
 
 Write one assignment per line using `NAME=VALUE`. Names must use shell
 identifier characters. Zot accepts values as data and rejects malformed lines
@@ -227,7 +244,7 @@ The Go test suite can be run against the extension:
 go test ./...
 ```
 
-The end-to-end tests launch zot with temporary configuration and a local fake OpenAI-compatible provider. They verify allowing a matching hook and blocking with either exit status `2` or a JSON decision. No external model provider or API credentials are required.
+The end-to-end tests launch zot with temporary configuration and a local fake OpenAI-compatible provider. They verify allowing a matching hook, blocking with either exit status `2` or a JSON decision, and running the current `SessionStart`, `PreToolUse`, `Notification`, and `Stop` hooks. The environment fixture records selected hook payloads only; it does not record the complete environment or secrets. No external model provider or API credentials are required.
 
 Manual fixtures are documented in [`fixtures/README.md`](fixtures/README.md).
 
@@ -352,13 +369,13 @@ Planned hook and lifecycle support is tracked in [`PLAN.md`](PLAN.md):
 
 | Planned capability | Current status |
 | --- | --- |
-| `user_prompt_submit` | Waiting for zot to expose the event. |
-| `PostToolUse` / `tool_result` | Waiting for zot tool-result events. |
-| Final tool status | Planned distinction between completed, failed, blocked, cancelled, and timed-out calls. |
-| `session_end` | Planned. |
-| `pre_compact` and `post_compact` | Planned. |
-| `subagent_start` and `subagent_stop` | Planned. |
-| `permission_decision` | Planned. |
+| `user_prompt_submit` | Supported when zot emits the event. |
+| `PostToolUse` / `tool_result` | Supported when zot emits tool-result events. |
+| Final tool status | Supported through the event payload status and executed fields. |
+| `session_end` | Supported. |
+| `pre_compact` and `post_compact` | Supported. |
+| `subagent_start` and `subagent_stop` | Supported. |
+| `permission_decision` | Supported observationally. |
 | Prompt replacement or synchronous prompt blocking | Waiting for zot semantics. |
 
 The plan also includes event-ordering tests and reconsidering fail-open behaviour if zot adds a fail-closed policy mode.

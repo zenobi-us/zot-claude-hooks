@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "sh .claude/hooks/record.sh"}]}],
+    "PreToolUse": [{"matcher": "^bash$", "hooks": [{"type": "command", "command": "sh .claude/hooks/record.sh"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "sh .claude/hooks/record.sh"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "sh .claude/hooks/record.sh"}]}]
+  }
+}
