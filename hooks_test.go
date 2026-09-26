@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -202,6 +203,98 @@ func TestParseHookDocumentKeepsValidSiblings(t *testing.T) {
 	hooks := parseHookDocument(data, "settings.json", "")
 	if len(hooks) != 1 || hooks[0].Command != "printf valid" {
 		t.Fatalf("got valid hooks %+v, want one command hook", hooks)
+	}
+}
+
+func TestSharedHookDirectoriesLoadSortedJSONFilesWithoutRecursion(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	zot := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZOT_HOME", zot)
+
+	write := func(path, command string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		data := fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":%q}]}]}}`, command)
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(home, ".agents/hooks", "b.json"), "home-agents-b")
+	write(filepath.Join(home, ".agents/hooks", "a.json"), "home-agents-a")
+	write(filepath.Join(project, ".claude/hooks", "nested", "ignored.json"), "nested")
+	write(filepath.Join(project, ".claude/hooks", "c.json"), "project-claude")
+	write(filepath.Join(zot, "hooks", "z.json"), "zot")
+
+	hooks := loadHooks(project)
+	var commands []string
+	for _, hook := range hooks {
+		commands = append(commands, hook.Command)
+	}
+	want := []string{"home-agents-a", "home-agents-b", "zot", "project-claude"}
+	if !slices.Equal(commands, want) {
+		t.Fatalf("loaded commands = %#v, want %#v", commands, want)
+	}
+}
+
+func TestSharedHookDiscoverySupportsSymlinksAndCanonicalDeduplication(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	zot := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZOT_HOME", zot)
+
+	realDir := filepath.Join(t.TempDir(), "hooks")
+	path := filepath.Join(realDir, "shared.json")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"shared"}]}]}}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(project, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(project, ".agents", "hooks")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(path, filepath.Join(zot, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZOT_HOOKS_PATH", filepath.Join(zot, "hooks.json"))
+
+	hooks := loadHooks(project)
+	if len(hooks) != 1 || hooks[0].Command != "shared" {
+		t.Fatalf("hooks = %#v, want one canonical hook", hooks)
+	}
+}
+
+func TestHookLocationsIncludeSharedDirectories(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	zot := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZOT_HOME", zot)
+	a := &app{cwd: project}
+	locations := a.formatLocations()
+	for _, path := range []string{
+		filepath.Join(home, ".agents", "hooks"),
+		filepath.Join(home, ".claude", "hooks"),
+		filepath.Join(zot, "hooks"),
+		filepath.Join(project, ".agents", "hooks"),
+		filepath.Join(project, ".claude", "hooks"),
+		filepath.Join(project, ".zot", "hooks"),
+	} {
+		if !strings.Contains(locations, path+" (direct .json files)") {
+			t.Fatalf("locations = %q, missing directory source %q", locations, path)
+		}
 	}
 }
 
