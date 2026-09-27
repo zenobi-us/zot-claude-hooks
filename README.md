@@ -6,19 +6,12 @@
 
 ## Start here: run a hook in five minutes
 
-### 1. Prerequisites
-
-You need:
-
-- Go 1.25 (`go@1.25`) to build the extension, or a prebuilt `zot-cluade-hooks` binary.
-- `zot`, available on your `PATH`.
-- A project directory in which zot can run.
-
-Build the extension to install it for zot:
+### 1. Install the extension
 
 ```sh
-go build -o zot-cluade-hooks .
+zot ext install https://github.com/zenobi-us/zot-cluade-hooks
 ```
+
 
 ### 2. Add a hook configuration
 
@@ -41,6 +34,8 @@ Create `.claude/settings.json` in the project where you run zot:
   }
 }
 ```
+Zot also looks for hooks in other places, see [Discovery paths](#discovery-paths) below.
+
 
 Create the command referenced above at `.zot/hooks/check-bash.sh`:
 
