@@ -8,7 +8,7 @@ Discussion: https://github.com/patriceckhart/zot/discussions/170
 
 These features use the current zot extension protocol.
 
-- Discover hook definitions in the fixed files `~/.claude/settings.json`, `$ZOT_HOME/zot-cluade-hooks.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, and `$ZOT_HOOKS_PATH`; then check the shared hook directories `$HOME/.agents/hooks/`, `$HOME/.claude/hooks/`, `$ZOT_HOME/hooks/`, `<project>/.agents/hooks/`, `<project>/.claude/hooks/`, and `<project>/.zot/hooks/` for direct, sorted `.json` files; finally check `$ZOT_HOME/extensions/*/hooks/*.json`.
+- Discover hook definitions in the fixed files `~/.claude/settings.json`, `$ZOT_HOME/zot-cluade-hooks.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.zot/zot-cluade-hooks.json`, `.zot/zot-cluade-hooks.local.json`, and `$ZOT_HOOKS_PATH` (absolute paths are used as-is; relative paths resolve from the project directory); then check the shared hook directories `$HOME/.agents/hooks/`, `$HOME/.claude/hooks/`, `$ZOT_HOME/hooks/`, `<project>/.agents/hooks/`, `<project>/.claude/hooks/`, and `<project>/.zot/hooks/` for direct, sorted `.json` files; finally check `$ZOT_HOME/extensions/*/hooks/*.json`. All sources are merged; local companion files are not overrides.
 - Read a top-level `hooks` object from each JSON file.
 - Support `type: "command"` hook entries.
 - Support `matcher` as a regular expression against the zot tool name.
@@ -53,6 +53,6 @@ Track implementation against [discussion #170](https://github.com/patriceckhart/
 - Define how hook command output maps to tool argument changes.
 - Define whether invalid matchers disable one hook or the full file.
 
-The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local overrides, project Zot settings, project-local Zot overrides, `ZOT_HOOKS_PATH`, the six shared hook directories listed above, and installed extension hook files. Directory files are direct-only, sorted by filename, and deduplicated by canonical path. `settings.json` files are now the supported configuration format.
+The current discovery order is global Claude settings, the user-level `$ZOT_HOME` hook file, project Claude settings, project-local companion files, project Zot settings, project-local Zot companion files, `ZOT_HOOKS_PATH`, the six shared hook directories listed above, and installed extension hook files. Discovery is additive: matching hooks execute in discovery order, and no source overrides another. Directory files are direct-only, regular `.json` files, sorted by filename, and deduplicated by canonical path. `settings.json` files are now the supported configuration format.
 
 Environment compatibility is implemented and documented in the README. The contract preserves inherited variables, owns verified `ZOT_*` values, adds only matching Claude aliases, keeps extension values source-scoped, and uses a safe session-scoped persistence file for later hooks. The complete unit and end-to-end environment matrix is covered by the Go tests.

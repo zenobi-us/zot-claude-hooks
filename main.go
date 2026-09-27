@@ -121,7 +121,11 @@ func configPaths(cwd string) []string {
 		filepath.Join(cwd, ".zot", "zot-cluade-hooks.local.json"),
 	}
 	if value := os.Getenv("ZOT_HOOKS_PATH"); value != "" {
-		paths = append(paths, filepath.Join(cwd, value))
+		if filepath.IsAbs(value) {
+			paths = append(paths, value)
+		} else {
+			paths = append(paths, filepath.Join(cwd, value))
+		}
 	}
 	seen := map[string]bool{}
 	result := make([]string, 0, len(paths))

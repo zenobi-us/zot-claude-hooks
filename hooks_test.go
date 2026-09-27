@@ -240,6 +240,24 @@ func TestSharedHookDirectoriesLoadSortedJSONFilesWithoutRecursion(t *testing.T) 
 	}
 }
 
+func TestConfigPathsResolveAbsoluteAndRelativeHookPaths(t *testing.T) {
+	project := t.TempDir()
+	absolutePath := filepath.Join(t.TempDir(), "absolute.json")
+
+	t.Setenv("ZOT_HOOKS_PATH", absolutePath)
+	paths := configPaths(project)
+	if paths[6] != absolutePath {
+		t.Fatalf("absolute ZOT_HOOKS_PATH = %q, want %q", paths[6], absolutePath)
+	}
+
+	t.Setenv("ZOT_HOOKS_PATH", "shared/hooks.json")
+	paths = configPaths(project)
+	wantRelative := filepath.Join(project, "shared/hooks.json")
+	if paths[6] != wantRelative {
+		t.Fatalf("relative ZOT_HOOKS_PATH = %q, want %q", paths[6], wantRelative)
+	}
+}
+
 func TestSharedHookDiscoverySupportsSymlinksAndCanonicalDeduplication(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()

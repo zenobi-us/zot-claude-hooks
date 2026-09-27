@@ -160,7 +160,7 @@ The Go implementation delegates protocol handling to zot's extension SDK. For pr
 
 ### Use a shared hook file
 
-Set `ZOT_HOOKS_PATH` to a JSON file or a path relative to the project directory:
+Set `ZOT_HOOKS_PATH` to a JSON file. Absolute paths are used as-is; relative paths resolve from the active project directory:
 
 ```sh
 ZOT_HOOKS_PATH="$HOME/.config/zot/hooks.json" \
@@ -277,11 +277,13 @@ Supported command fields:
 | `timeout` | no | Maximum runtime in seconds. Defaults to `10`; values are clamped to at least `0.1` seconds. |
 | `matcher` | no | JavaScript regular expression matched against the zot tool name. Defaults to `.*`. |
 
-Relative command paths and relative configuration paths resolve from the project directory. Invalid regular expressions are logged and do not match. A malformed or unreadable configuration file is logged and skipped.
+Relative command paths and relative configuration paths resolve from the project directory. `ZOT_HOOKS_PATH` must identify a JSON file; absolute values are used as-is and relative values resolve from the project directory. Invalid regular expressions are logged and do not match. A malformed or unreadable configuration file is logged and skipped.
 
 ### Discovery paths
 
-Existing files are checked in this order:
+The active project directory is the project directory supplied to zot. Project
+paths below are resolved beneath it; home and `$ZOT_HOME` paths are resolved
+independently. Existing files are checked in this order:
 
 1. `~/.claude/settings.json`
 2. `$ZOT_HOME/zot-cluade-hooks.json`
@@ -293,7 +295,12 @@ Existing files are checked in this order:
 8. The shared hook directories listed below
 9. `$ZOT_HOME/extensions/*/hooks/*.json` (excluding `zot-cluade-hooks` itself)
 
-All valid definitions found at these paths are loaded. Later files do not automatically replace earlier files, so use matchers and commands that make multiple matching hooks safe.
+All valid definitions found at these paths are loaded. Discovery is additive:
+later files do not replace earlier files. When multiple hooks match an event,
+they execute in discovery order; files in a shared directory execute in
+filename order. Use matchers and commands that make multiple matching hooks
+safe. The same file is loaded only once when it is reachable through symlinks
+or multiple discovery locations.
 
 ### Shared hook directories
 
@@ -306,7 +313,21 @@ After the fixed-file locations and `ZOT_HOOKS_PATH`, zot checks these directorie
 5. `<project>/.claude/hooks/`
 6. `<project>/.zot/hooks/`
 
-Zot reads direct `.json` files only. It does not recurse into subdirectories. Symlinked directories and files are supported. Files are sorted by filename and deduplicated by canonical path. Missing directories are ignored. Use `/hooks locations` to see these directory sources.
+Zot reads direct regular `.json` files only. It does not recurse into
+subdirectories. Symlinked directories and files are supported. Files are
+sorted by filename and deduplicated by canonical path. Missing directories are
+ignored. Use `/hooks locations` to see these candidate directory sources.
+
+Installed extensions contribute direct regular `.json` files from
+`$ZOT_HOME/extensions/<extension-name>/hooks/`. Nested directories are not
+scanned, extension names and filenames are processed in sorted order, and the
+`zot-cluade-hooks` extension itself is excluded.
+
+`/hooks locations` displays candidate fixed paths and shared directories,
+including locations that do not currently exist. It displays installed
+extension entries only when their hook files are present. Use `/hooks` or
+`./zot-cluade-hooks list` to inspect hooks that were actually parsed and
+loaded.
 
 ### Hook events
 
