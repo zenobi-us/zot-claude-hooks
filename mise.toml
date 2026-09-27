@@ -1,6 +1,2 @@
 [tools]
 go = "1.25.0"
-zot = "latest"
-
-[tool_alias]
-zot = "github:patriceckhart/zot"
