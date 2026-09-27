@@ -348,6 +348,17 @@ func (a *app) forEvent(event, toolName string) []hook {
 	return out
 }
 
+func (a *app) notifyHook(h hook) {
+	if a.ext == nil {
+		return
+	}
+	message := fmt.Sprintf("Hook activated: %s", h.Event)
+	if h.Source != "" {
+		message += " from " + h.Source
+	}
+	a.ext.Notify("info", message)
+}
+
 func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	payload := map[string]any{"hook_event_name": "PreToolUse", "cwd": a.cwd, "tool_name": toolName, "tool_input": json.RawMessage(input)}
 	a.runtimeMu.RLock()
@@ -357,6 +368,7 @@ func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	state := a.envState
 	a.envMu.Unlock()
 	for _, h := range a.forEvent("PreToolUse", toolName) {
+		a.notifyHook(h)
 		result := runHookWithEnvironment(context.Background(), h, payload, a.cwd, a.cwd, runtime, state, false)
 		reason := "blocked by hook"
 		if result.Response != nil {
@@ -403,6 +415,7 @@ func (a *app) event(event, toolName string, payload map[string]any) {
 	state := a.envState
 	a.envMu.Unlock()
 	for _, h := range a.forEvent(event, toolName) {
+		a.notifyHook(h)
 		_ = runHookWithEnvironment(context.Background(), h, payload, processDir, a.cwd, runtime, state, event == "SessionStart")
 		if event == "SessionStart" && state != nil {
 			state.refresh()
@@ -795,6 +808,7 @@ func main() {
 	a.ext.OnHello(func(info ext.HostInfo) {
 		a.cwd = info.CWD
 		a.reload()
+		a.ext.Notify("info", a.formatHooks())
 		a.ext.Command("hooks", "show active hooks, valid locations, or add a local hook", a.command)
 		a.ext.OnPanelKey(hooksPanelID, a.handlePanelKey, func() {
 			a.mu.Lock()
