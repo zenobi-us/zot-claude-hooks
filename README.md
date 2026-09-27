@@ -84,6 +84,35 @@ The tool call is blocked and zot receives the supplied reason. A JSON response w
 
 ## How-to guides
 
+### Configure a lifecycle hook
+
+Hooks use the Claude-style JSON settings shape: the `hooks` object maps an
+**event name** to matcher groups. Each group has a regular-expression
+`matcher` and one or more command handlers.
+
+```json
+{
+  "hooks": {
+    "TurnStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/turn-start.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Matchers apply to tool names for tool events such as `PreToolUse`,
+`PostToolUse`, and `PermissionRequest`. For lifecycle events without a tool
+name, use `.*`. Commands receive one JSON object on stdin.
+
 ### Manage hooks from zot
 
 The extension registers a `/hooks` slash command with these forms:
@@ -331,52 +360,271 @@ loaded.
 
 ### Hook events
 
-The compatibility matrix below shows how zot lifecycle events map to hook names and whether this extension currently supports them:
+The table is the complete command-hook compatibility surface. The first column
+is the PascalCase name used in the configuration file and links to the detailed
+reference below. `ClaudeHookName` identifies the corresponding Claude Code
+concept; `ZotHookName` is the native lifecycle event emitted by zot.
 
-| zot event | Claude hook | zot-claude-hooks support |
-| --- | --- | --- |
-| `session_start` | `SessionStart` | Supported |
-| `user_prompt_submit` | `UserPromptSubmit` | Supported; forwards the submitted prompt payload. |
-| `turn_start` | — | Available in zot, but there is no direct hook equivalent currently implemented. |
-| `tool_call` | `PreToolUse` | Supported synchronously; exit `2` or JSON `decision: "block"` prevents the call. |
-| `tool_result` | `PostToolUse` | Supported; forwards effective arguments, execution status, result, and executed flag. |
-| `tool_confirmation_requested` | `PermissionRequest` | Supported; runs when zot requests confirmation. The same hook also receives the later `permission_decision` observation. |
-| `permission_decision` | `PermissionRequest` | Supported observationally; forwards the final decision and metadata. |
-| `turn_end` | `Stop` | Supported. Runs when a turn ends. |
-| `assistant_message` | `Notification` | Partially supported through the currently available notification-like events. |
-| `session_end` | `SessionEnd` | Supported; forwards the session shutdown reason. |
-| `pre_compact` | `PreCompact` | Supported; forwards compaction and token metadata. |
-| `post_compact` | — | Supported; forwards compaction completion metadata. |
-| `subagent_start` | `SubagentStart` | Supported; forwards agent identity and run metadata. |
-| `subagent_stop` | `SubagentStop` | Supported; forwards agent status and error metadata. |
+| PascalCaseHookName | ClaudeHookName | ZotHookName | Description (influenced by facts in code) |
+| --- | --- | --- | --- |
+| [`SessionStart`](#sessionstart) | `SessionStart` | `session_start` | Runs when an active conversation opens. Initializes the hook session environment. |
+| [`SessionEnd`](#sessionend) | `SessionEnd` | `session_end` | Runs when the conversation closes and receives the shutdown reason. |
+| [`UserPromptSubmit`](#userpromptsubmit) | `UserPromptSubmit` | `user_prompt_submit` | Runs when processed user input is accepted, before append or queue. |
+| [`TurnStart`](#turnstart) | — | `turn_start` | Zot-specific observational hook that runs when a model step begins. |
+| [`Stop`](#stop) | `Stop` | `turn_end` | Runs when a model response attempt ends, before client tool execution. |
+| [`PreToolUse`](#pretooluse) | `PreToolUse` | `tool_call` | Runs synchronously before a client tool call and can block it. |
+| [`PostToolUse`](#posttooluse) | `PostToolUse` | `tool_result` | Runs after a client tool reaches a terminal result. |
+| [`PermissionRequest`](#permissionrequest) | `PermissionRequest` | `tool_confirmation_requested`, `permission_decision` | Runs for an interactive approval request and the resulting decision. |
+| [`Notification`](#notification) | `Notification` | `tool_call`, `assistant_message` | Runs for tool-call and visible-assistant-message notifications. |
+| [`PreCompact`](#precompact) | `PreCompact` | `pre_compact` | Runs when context compaction begins. |
+| [`PostCompact`](#postcompact) | — | `post_compact` | Runs when context compaction finishes, including failure. |
+| [`SubagentStart`](#subagentstart) | `SubagentStart` | `subagent_start` | Runs when a local swarm runner starts or resumes. |
+| [`SubagentStop`](#subagentstop) | `SubagentStop` | `subagent_stop` | Runs when a local swarm runner returns. |
+| [`BeforeAgentStart`](#beforeagentstart) | — | `before_agent_start` interception | Runs after prompt assembly and before the first model call; may replace the complete system prompt. |
 
-The current implementation supports these Claude-style event names:
+Every lifecycle payload also includes `session_id`, `cwd`, and `sequence`. Tool
+payloads include tool identity and arguments; compaction payloads include
+counts and estimates; subagent payloads include agent identity. Observational
+hooks cannot change the event. `PreToolUse` can block a tool call, and
+`BeforeAgentStart` can replace the system prompt using the zot-specific
+interception protocol described below.
 
-| Hook event | zot source | Behaviour |
-| --- | --- | --- |
-| `PreToolUse` | synchronous `tool_call` interception | Runs before the tool. Exit `2` or JSON `decision: "block"` prevents the call. |
-| `SessionStart` | `session_start` | Runs when the extension session starts. |
-| `Stop` | `turn_end` | Runs when a turn ends. |
-| `Notification` | `tool_call` and `assistant_message` events | Runs for the currently available notification-like events. |
-| `PostToolUse` | `tool_result` | Runs after a tool result and receives effective arguments plus final status. |
-| `PermissionRequest` | `tool_confirmation_requested` and `permission_decision` | Runs for permission request and final decision observations. |
-| `UserPromptSubmit` | `user_prompt_submit` | Runs when a user prompt is submitted. |
-| `SessionEnd` | `session_end` | Runs when the session ends. |
-| `PreCompact` / `PostCompact` | `pre_compact` / `post_compact` | Runs around context compaction. |
-| `SubagentStart` / `SubagentStop` | `subagent_start` / `subagent_stop` | Runs around subagent lifecycle events. |
+#### <a id="sessionstart"></a>SessionStart
 
-`PreToolUse` receives a payload such as:
+Receives `hook_event_name`, `session_id`, `cwd`, and the event metadata. The
+extension initializes its per-session environment before running these hooks.
+A command's output is observational; exit status does not block session start.
+
+#### <a id="sessionend"></a>SessionEnd
+
+Receives the session shutdown `reason`. Output is observational and cannot
+prevent session shutdown.
+
+#### <a id="userpromptsubmit"></a>UserPromptSubmit
+
+Receives the processed prompt as `message`, plus `queued` when the prompt was
+queued and `image_count` when images were attached. This is not raw editor
+keystroke input. Output is observational.
+
+#### <a id="turnstart"></a>TurnStart
+
+Zot-specific. Receives `step` and runs when a model step begins. Output is
+observational; this command-hook integration does not block the turn. Native
+zot extensions can use the separate `turn_start` interceptor.
+
+#### <a id="stop"></a>Stop
+
+Maps zot's `turn_end` event and receives `stop_reason`; an optional `error` is
+included when the model response attempt failed. It runs before client tool
+execution. Output is observational.
+
+#### <a id="pretooluse"></a>PreToolUse
+
+Runs synchronously before a client tool call. It receives `tool_name`,
+`tool_input`, and `tool_id`. This is the one command-hook event whose result
+can change execution:
+
+- exit code `0` allows the call;
+- exit code `2` blocks the call;
+- JSON `{"decision":"block","reason":"..."}` blocks the call and supplies the reason;
+- other exit codes, malformed JSON, and timeouts fail open.
+
+A matcher is applied to `tool_name` for this event.
+
+#### <a id="posttooluse"></a>PostToolUse
+
+Runs after a client tool reaches a terminal outcome. It receives effective
+`tool_input`, `tool_status`, `tool_executed`, and `tool_result`. Effective
+arguments include accepted interceptor rewrites. Output is observational.
+
+#### <a id="permissionrequest"></a>PermissionRequest
+
+Runs for both `tool_confirmation_requested` and `permission_decision`.
+Confirmation includes `tool_preview`; the later decision includes `decision`,
+`source`, `stage`, and optional `reason`. It is emitted only when zot actually
+requests or resolves an applicable approval. Output is observational.
+
+#### <a id="notification"></a>Notification
+
+Runs for `tool_call` and `assistant_message`. Tool notifications include the
+proposed tool fields; assistant notifications include the visible text as
+`message`. The command cannot rewrite or suppress the assistant message.
+
+#### <a id="precompact"></a>PreCompact
+
+Runs when compaction begins and receives `compaction_id`, `message_count`, and
+`token_estimate`. Output is observational.
+
+#### <a id="postcompact"></a>PostCompact
+
+Runs when compaction finishes. It receives the same compaction metadata plus
+`tool_status`-style `status` information and an optional `error`. Output is
+observational, including when compaction fails.
+
+#### <a id="subagentstart"></a>SubagentStart
+
+Runs when a local swarm runner starts or resumes. Payloads include `agent_id`,
+`agent_run_id`, and `agent_name`. Output is observational.
+
+#### <a id="subagentstop"></a>SubagentStop
+
+Runs when that swarm runner returns. Payloads include the same identity fields
+plus status and optional error information. Output is observational.
+
+#### <a id="beforeagentstart"></a>BeforeAgentStart
+
+This is zot-specific; Claude Code has no equivalent hook name. It runs after
+zot assembles the complete system prompt and before the first model call. The
+payload includes `system_prompt`, `session_id`, `agent_run_id`, `cwd`,
+`provider`, and `model`. The complete prompt can contain private context-file,
+skill, and extension instructions. Do not enable this hook for untrusted
+project configuration.
+
+Return `{}` or `{"decision":"allow"}` to preserve the prompt. Return
+`{"decision":"replace","system_prompt":"..."}` to replace it. An empty
+string intentionally removes the prompt. Multiple matching hooks run serially;
+each hook sees the previous hook's replacement. Invalid JSON, timeout, crashes,
+and invalid fields fail open and preserve the current prompt. Hook execution is
+capped at zot's five-second interception deadline.
+
+### Hook examples
+
+#### Replace the system prompt before the first model call
+
+Definition in `.claude/settings.json`:
 
 ```json
 {
-  "hook_event_name": "PreToolUse",
-  "cwd": "/path/to/project",
-  "tool_name": "bash",
-  "tool_input": { "command": "printf hello" }
+  "hooks": {
+    "BeforeAgentStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/add-project-rule.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-Asynchronous event hooks receive the zot event frame with `hook_event_name` added. Their output does not change the event; use them for auditing, notifications, or other side effects.
+`.zot/hooks/add-project-rule.sh`:
+
+```sh
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+prompt=$(printf '%s' "$payload" | jq -r '.system_prompt')
+addition='Additional project rule: run the focused test before reporting completion.'
+
+jq -n --arg prompt "$prompt" --arg addition "$addition" \
+  '{decision: "replace", system_prompt: ($prompt + "\\n\\n" + $addition)}'
+```
+
+Return `{}` or `{"decision":"allow"}` to leave the prompt unchanged. An
+empty `system_prompt` is a deliberate replacement that removes the prompt.
+
+#### Block a dangerous tool with exit status
+
+Definition in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/block-dangerous-bash.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`.zot/hooks/block-dangerous-bash.sh`:
+
+```sh
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+command=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
+case "$command" in
+  *"rm -rf"*)
+    printf '%s\\n' 'blocked by project policy' >&2
+    exit 2
+    ;;
+esac
+
+exit 0
+```
+
+#### Block a tool with a JSON response
+
+The same `PreToolUse` command can return a structured reason:
+
+```sh
+#!/bin/sh
+set -eu
+
+payload=$(cat)
+command=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
+if printf '%s' "$command" | grep -q 'curl.*production'; then
+  printf '%s\\n' '{"decision":"block","reason":"production network access is disabled"}'
+  exit 0
+fi
+
+printf '%s\\n' '{"decision":"allow"}'
+exit 0
+```
+
+`decision: "block"` is acted on by `PreToolUse`; `decision: "allow"` is
+currently informational and the call proceeds. For all other hook events,
+JSON and exit status are observational and do not alter zot behavior.
+
+#### Audit an observational event
+
+Definition:
+
+```json
+{
+  "hooks": {
+    "TurnStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .zot/hooks/audit-turn.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Script:
+
+```sh
+#!/bin/sh
+set -eu
+
+jq -c '{event: .hook_event_name, step, session_id, cwd}' >> .zot/turns.jsonl
+# Exit status and JSON output are ignored for observational events.
+printf '%s\\n' '{"recorded":true}'
+exit 0
+```
 
 ### Command results and failure behaviour
 
@@ -393,7 +641,10 @@ The extension is a JSONL protocol process described by `extension.json`. When zo
 
 For a tool call, zot sends an interception frame. The extension selects `PreToolUse` commands whose matcher matches the tool name, passes each command the Claude-style payload, and returns an interception response. Other subscribed events are forwarded asynchronously to matching commands.
 
-This repository currently implements the protocol client, hook discovery, `PreToolUse`, and the event forwarding listed above. It does not yet implement every Claude hook event.
+This repository implements the protocol client, hook discovery, synchronous
+`PreToolUse`, and command-hook forwarding for the lifecycle events listed
+above. Claude hook names are a compatibility layer over zot events; they are
+not a complete substitute for zot's native interception protocol.
 
 Planned hook and lifecycle support is tracked in [`PLAN.md`](PLAN.md):
 

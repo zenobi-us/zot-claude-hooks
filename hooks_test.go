@@ -155,6 +155,134 @@ func TestEventPayloadIncludesLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestTurnStartIsRegisteredAsAnObservationalHookEvent(t *testing.T) {
+	for _, event := range hookEvents {
+		if event == "TurnStart" {
+			return
+		}
+	}
+	t.Fatalf("hookEvents = %#v, want TurnStart", hookEvents)
+}
+
+func TestTurnStartPayloadIncludesObservationalFields(t *testing.T) {
+	a := &app{cwd: "/tmp/project"}
+	payload := a.eventPayload("TurnStart", ext.Event{
+		Name:       "turn_start",
+		Step:       4,
+		Queued:     true,
+		ImageCount: 2,
+		SessionID:  "session-1",
+		AgentRunID: "run-1",
+		AgentID:    "agent-1",
+		AgentName:  "researcher",
+	})
+
+	want := map[string]any{
+		"hook_event_name": "TurnStart",
+		"step":            4,
+		"queued":          true,
+		"image_count":     2,
+		"session_id":      "session-1",
+		"agent_run_id":    "run-1",
+		"agent_id":        "agent-1",
+		"agent_name":      "researcher",
+	}
+	for key, expected := range want {
+		if payload[key] != expected {
+			t.Errorf("TurnStart payload[%q] = %#v, want %#v; payload = %#v", key, payload[key], expected, payload)
+		}
+	}
+}
+
+func TestTurnStartObservationalHookReceivesTurnStartPayload(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "hook-payload")
+	a := &app{
+		cwd: t.TempDir(),
+		hooks: []hook{{
+			Event: "TurnStart", Command: fmt.Sprintf("cat > %q", output), Timeout: defaultTimeout,
+		}},
+	}
+	payload := a.eventPayload("TurnStart", ext.Event{Name: "turn_start", Step: 7, Queued: true, ImageCount: 1})
+	a.event("TurnStart", "", payload)
+
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("hook payload is not JSON: %v", err)
+	}
+	for key, expected := range map[string]any{"hook_event_name": "TurnStart", "step": float64(7), "queued": true, "image_count": float64(1)} {
+		if got[key] != expected {
+			t.Errorf("hook payload[%q] = %#v, want %#v; payload = %#v", key, got[key], expected, got)
+		}
+	}
+}
+
+func TestBeforeAgentStartReplacesPrompt(t *testing.T) {
+	a := &app{
+		cwd: t.TempDir(),
+		hooks: []hook{{
+			Event: "BeforeAgentStart", Command: `printf '%s' '{"decision":"replace","system_prompt":"rewritten"}'`, Timeout: defaultTimeout,
+		}},
+	}
+
+	got := a.beforeAgentStart(ext.BeforeAgentStartEvent{
+		SystemPrompt: "original",
+		SessionID:    "session-1",
+		AgentRunID:   "run-1",
+		CWD:          a.cwd,
+		Provider:     "test",
+		Model:        "model",
+	})
+	if got == nil || *got != "rewritten" {
+		t.Fatalf("beforeAgentStart() = %v, want rewritten prompt", got)
+	}
+}
+
+func TestBeforeAgentStartAllowsExplicitEmptyPrompt(t *testing.T) {
+	a := &app{
+		cwd: t.TempDir(),
+		hooks: []hook{{
+			Event: "BeforeAgentStart", Command: `printf '%s' '{"decision":"replace","system_prompt":""}'`, Timeout: defaultTimeout,
+		}},
+	}
+
+	got := a.beforeAgentStart(ext.BeforeAgentStartEvent{SystemPrompt: "original", CWD: a.cwd})
+	if got == nil || *got != "" {
+		t.Fatalf("beforeAgentStart() = %v, want explicit empty replacement", got)
+	}
+}
+
+func TestBeforeAgentStartChainsReplacements(t *testing.T) {
+	a := &app{
+		cwd: t.TempDir(),
+		hooks: []hook{
+			{Event: "BeforeAgentStart", Command: `printf '%s' '{"system_prompt":"first"}'`, Timeout: defaultTimeout},
+			{Event: "BeforeAgentStart", Command: `input=$(cat); test "$(printf '%s' "$input" | jq -r .system_prompt)" = first; printf '%s' '{"system_prompt":"second"}'`, Timeout: defaultTimeout},
+		},
+	}
+
+	got := a.beforeAgentStart(ext.BeforeAgentStartEvent{SystemPrompt: "original", CWD: a.cwd})
+	if got == nil || *got != "second" {
+		t.Fatalf("beforeAgentStart() = %v, want chained replacement", got)
+	}
+}
+
+func TestBeforeAgentStartPassesThroughMalformedResponse(t *testing.T) {
+	a := &app{
+		cwd: t.TempDir(),
+		hooks: []hook{{
+			Event: "BeforeAgentStart", Command: `printf '%s' 'not json'`, Timeout: defaultTimeout,
+		}},
+	}
+
+	if got := a.beforeAgentStart(ext.BeforeAgentStartEvent{SystemPrompt: "original", CWD: a.cwd}); got != nil {
+		t.Fatalf("beforeAgentStart() = %q, want pass-through nil", *got)
+	}
+}
+
 func TestParseHookDocumentBuildsTypedCommandHooks(t *testing.T) {
 	data := []byte(`{
 		"name": "unrelated setting",

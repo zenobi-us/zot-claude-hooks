@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	name           = "zot-cluade-hooks"
-	defaultTimeout = 10 * time.Second
+	name                    = "zot-cluade-hooks"
+	defaultTimeout          = 10 * time.Second
+	beforeAgentStartTimeout = 5 * time.Second
 )
 
 var version = "0.0.0-dev"
 
-var hookEvents = []string{"PreToolUse", "SessionStart", "Stop", "Notification", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"}
+var hookEvents = []string{"PreToolUse", "SessionStart", "TurnStart", "Stop", "Notification", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "BeforeAgentStart"}
 
 type hook struct {
 	Event, Command, Matcher, Source, Owner string
@@ -47,11 +48,18 @@ type hookResult struct {
 	Response map[string]any
 }
 
+type promptHookResponse struct {
+	Decision     string  `json:"decision"`
+	SystemPrompt *string `json:"system_prompt"`
+}
+
 type app struct {
-	mu    sync.RWMutex
-	cwd   string
-	hooks []hook
-	ext   *ext.Extension
+	mu       sync.RWMutex
+	cwd      string
+	provider string
+	model    string
+	hooks    []hook
+	ext      *ext.Extension
 
 	runtimeMu sync.RWMutex
 	runtime   HookRuntime
@@ -381,6 +389,64 @@ func (a *app) preTool(toolName string, input json.RawMessage) (bool, string) {
 	return true, ""
 }
 
+func (a *app) beforeAgentStart(ev ext.BeforeAgentStartEvent) *string {
+	current := ev.SystemPrompt
+	changed := false
+	payload := map[string]any{
+		"hook_event_name": "BeforeAgentStart",
+		"system_prompt":   current,
+		"session_id":      ev.SessionID,
+		"agent_run_id":    ev.AgentRunID,
+		"cwd":             ev.CWD,
+		"provider":        ev.Provider,
+		"model":           ev.Model,
+	}
+
+	a.runtimeMu.RLock()
+	runtimeEnv := a.runtime
+	a.runtimeMu.RUnlock()
+	a.envMu.Lock()
+	state := a.envState
+	a.envMu.Unlock()
+
+	for _, h := range a.forEvent("BeforeAgentStart", "") {
+		a.notifyHook(h)
+		payload["system_prompt"] = current
+		promptHook := h
+		if promptHook.Timeout <= 0 || promptHook.Timeout > beforeAgentStartTimeout {
+			promptHook.Timeout = beforeAgentStartTimeout
+		}
+		result := runHookWithEnvironment(context.Background(), promptHook, payload, ev.CWD, a.cwd, runtimeEnv, state, false)
+		if result.Response == nil {
+			continue
+		}
+
+		var response promptHookResponse
+		encoded, err := json.Marshal(result.Response)
+		if err != nil || json.Unmarshal(encoded, &response) != nil {
+			logf("invalid BeforeAgentStart response from %s", h.Source)
+			continue
+		}
+		if response.SystemPrompt == nil {
+			continue
+		}
+		if response.Decision != "" && response.Decision != "replace" && response.Decision != "allow" {
+			logf("invalid BeforeAgentStart decision from %s: %s", h.Source, response.Decision)
+			continue
+		}
+		if response.Decision == "allow" {
+			continue
+		}
+		current = *response.SystemPrompt
+		changed = true
+	}
+
+	if !changed {
+		return nil
+	}
+	return &current
+}
+
 func effectiveEventDirectory(projectDir, eventDir string) string {
 	if eventDir != "" {
 		return eventDir
@@ -445,6 +511,15 @@ func (a *app) eventPayload(hookEvent string, ev ext.Event) map[string]any {
 		"agent_run_id":    ev.AgentRunID,
 		"sequence":        ev.Sequence,
 		"event":           ev.Name,
+	}
+	if ev.Queued {
+		payload["queued"] = true
+	}
+	if ev.ImageCount != 0 {
+		payload["image_count"] = ev.ImageCount
+	}
+	if ev.Step != 0 {
+		payload["step"] = ev.Step
 	}
 	if ev.ToolID != "" {
 		payload["tool_id"] = ev.ToolID
@@ -807,6 +882,8 @@ func main() {
 	a.ext = ext.New(name, version)
 	a.ext.OnHello(func(info ext.HostInfo) {
 		a.cwd = info.CWD
+		a.provider = info.Provider
+		a.model = info.Model
 		a.reload()
 		a.ext.Notify("info", a.formatHooks())
 		a.ext.Command("hooks", "show active hooks, valid locations, or add a local hook", a.command)
@@ -821,6 +898,9 @@ func main() {
 		})
 		a.ext.On("user_prompt_submit", func(ev ext.Event) {
 			a.event("UserPromptSubmit", "", a.eventPayload("UserPromptSubmit", ev))
+		})
+		a.ext.On("turn_start", func(ev ext.Event) {
+			a.event("TurnStart", "", a.eventPayload("TurnStart", ev))
 		})
 		a.ext.On("turn_end", func(ev ext.Event) {
 			a.event("Stop", "", a.eventPayload("Stop", ev))
@@ -857,6 +937,18 @@ func main() {
 		})
 		a.ext.InterceptToolCall(func(toolName string, args json.RawMessage) (bool, string) {
 			return a.preTool(toolName, args)
+		})
+		a.ext.InterceptBeforeAgentStart(func(ev ext.BeforeAgentStartEvent) *string {
+			if ev.Provider == "" {
+				ev.Provider = a.provider
+			}
+			if ev.Model == "" {
+				ev.Model = a.model
+			}
+			if ev.CWD == "" {
+				ev.CWD = a.cwd
+			}
+			return a.beforeAgentStart(ev)
 		})
 	})
 	// Registering the subscription through On calls makes the SDK emit the exact
