@@ -592,7 +592,7 @@ func (a *app) panelLinesLocked(status string) []string {
 		if h.Owner != "" {
 			owner = " (" + h.Owner + ")"
 		}
-		lines = append(lines, fmt.Sprintf("  %s [%s]%s", h.Event, h.Matcher, owner), "    "+h.Command)
+		lines = append(lines, fmt.Sprintf("  %s [%s]%s — %s", h.Event, h.Matcher, owner, h.Source), "    "+h.Command)
 	}
 	return lines
 }

@@ -316,6 +316,18 @@ func TestHookLocationsIncludeSharedDirectories(t *testing.T) {
 	}
 }
 
+func TestHookPanelIncludesHookSourcePath(t *testing.T) {
+	source := filepath.Join(t.TempDir(), ".agents", "hooks", "shared-context.json")
+	a := &app{hooks: []hook{{
+		Event: "SessionStart", Matcher: ".*", Source: source, Command: "inject context",
+	}}}
+
+	lines := strings.Join(a.panelLines(), "\n")
+	if !strings.Contains(lines, source) {
+		t.Fatalf("panel lines = %q, want source path %q", lines, source)
+	}
+}
+
 func TestParseHookDocumentPreservesCurrentTimeoutCompatibility(t *testing.T) {
 	data := []byte(`{
 		"hooks": {
