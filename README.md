@@ -295,9 +295,23 @@ Existing files are checked in this order:
 5. `.zot/zot-cluade-hooks.json`
 6. `.zot/zot-cluade-hooks.local.json`
 7. `$ZOT_HOOKS_PATH` (when `ZOT_HOOKS_PATH` is set)
-8. `$ZOT_HOME/extensions/*/hooks/*.json` (excluding `zot-cluade-hooks` itself)
+8. The shared hook directories listed below
+9. `$ZOT_HOME/extensions/*/hooks/*.json` (excluding `zot-cluade-hooks` itself)
 
 All valid definitions found at these paths are loaded. Later files do not automatically replace earlier files, so use matchers and commands that make multiple matching hooks safe.
+
+### Shared hook directories
+
+After the fixed-file locations and `ZOT_HOOKS_PATH`, zot checks these directories in this order:
+
+1. `$HOME/.agents/hooks/`
+2. `$HOME/.claude/hooks/`
+3. `$ZOT_HOME/hooks/`
+4. `<project>/.agents/hooks/`
+5. `<project>/.claude/hooks/`
+6. `<project>/.zot/hooks/`
+
+Zot reads direct `.json` files only. It does not recurse into subdirectories. Symlinked directories and files are supported. Files are sorted by filename and deduplicated by canonical path. Missing directories are ignored. Use `/hooks locations` to see these directory sources.
 
 ### Hook events
 

@@ -36,6 +36,11 @@ type hook struct {
 	Timeout                                time.Duration
 }
 
+type hookLocation struct {
+	Path      string
+	Directory bool
+}
+
 type hookResult struct {
 	Code     int
 	Output   string
@@ -130,26 +135,49 @@ func configPaths(cwd string) []string {
 	return result
 }
 
+func sharedHookDirectories(cwd string) []string {
+	return []string{
+		filepath.Join(mustHomeDir(), ".agents", "hooks"),
+		filepath.Join(mustHomeDir(), ".claude", "hooks"),
+		filepath.Join(zotHome(), "hooks"),
+		filepath.Join(cwd, ".agents", "hooks"),
+		filepath.Join(cwd, ".claude", "hooks"),
+		filepath.Join(cwd, ".zot", "hooks"),
+	}
+}
+
+func mustHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
 func extensionSources() []HookSource {
-	entries, err := os.ReadDir(filepath.Join(zotHome(), "extensions"))
+	extensionsDir := filepath.Join(zotHome(), "extensions")
+	entries, err := os.ReadDir(extensionsDir)
 	if err != nil {
 		return nil
 	}
 	var result []HookSource
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == name {
+		root := filepath.Join(extensionsDir, entry.Name())
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() || entry.Name() == name {
 			continue
 		}
-		files, err := os.ReadDir(filepath.Join(zotHome(), "extensions", entry.Name(), "hooks"))
+		files, err := os.ReadDir(filepath.Join(root, "hooks"))
 		if err != nil {
 			continue
 		}
 		sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			path := filepath.Join(root, "hooks", file.Name())
+			info, err := os.Stat(path)
+			if err == nil && info.Mode().IsRegular() && strings.HasSuffix(file.Name(), ".json") {
 				result = append(result, HookSource{
-					Path:  filepath.Join(zotHome(), "extensions", entry.Name(), "hooks", file.Name()),
-					Owner: entry.Name(), Root: filepath.Join(zotHome(), "extensions", entry.Name()), Extension: true,
+					Path: path, Owner: entry.Name(), Root: root, Extension: true,
 				})
 			}
 		}
@@ -157,14 +185,63 @@ func extensionSources() []HookSource {
 	return result
 }
 
+func discoveryLocations(cwd string) []hookLocation {
+	locations := make([]hookLocation, 0, len(configPaths(cwd))+len(sharedHookDirectories(cwd))+1)
+	for _, path := range configPaths(cwd) {
+		locations = append(locations, hookLocation{Path: path})
+	}
+	for _, path := range sharedHookDirectories(cwd) {
+		locations = append(locations, hookLocation{Path: path, Directory: true})
+	}
+	return locations
+}
+
+func canonicalPath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(absolute(path))
+}
+
+func directorySources(location hookLocation) []HookSource {
+	entries, err := os.ReadDir(location.Path)
+	if err != nil {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	result := make([]HookSource, 0, len(entries))
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(location.Path, entry.Name())
+		info, err := os.Stat(path)
+		if err == nil && info.Mode().IsRegular() {
+			result = append(result, HookSource{Path: path})
+		}
+	}
+	return result
+}
+
 func loadHooks(cwd string) []hook {
 	var sources []HookSource
-	for _, path := range configPaths(cwd) {
-		sources = append(sources, HookSource{Path: path})
+	for _, location := range discoveryLocations(cwd) {
+		if location.Directory {
+			sources = append(sources, directorySources(location)...)
+		} else {
+			sources = append(sources, HookSource{Path: location.Path})
+		}
 	}
 	sources = append(sources, extensionSources()...)
 	var result []hook
+	seen := map[string]bool{}
 	for _, source := range sources {
+		canonical := canonicalPath(source.Path)
+		if seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
 		data, err := os.ReadFile(source.Path)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
@@ -643,8 +720,14 @@ func (a *app) formatHooks() string {
 func (a *app) formatLocations() string {
 	var b strings.Builder
 	b.WriteString("Valid hook locations (checked in this order):")
-	for i, path := range configPaths(a.cwd) {
-		fmt.Fprintf(&b, "\n%d. %s", i+1, path)
+	index := 1
+	for _, location := range discoveryLocations(a.cwd) {
+		if location.Directory {
+			fmt.Fprintf(&b, "\n%d. %s (direct .json files)", index, location.Path)
+		} else {
+			fmt.Fprintf(&b, "\n%d. %s", index, location.Path)
+		}
+		index++
 	}
 	sources := extensionSources()
 	if len(sources) > 0 {
