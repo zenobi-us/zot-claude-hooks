@@ -226,7 +226,7 @@ Every hook inherits the complete environment of the zot process. The extension s
 
 Hooks loaded from an installed extension also receive `ZOT_EXTENSION_ROOT`, set to the owning extension directory. Project hooks do not receive this value unless it was already present in the inherited environment. Each hook gets the root of its own extension.
 
-Lifecycle events expose the persisted or runtime-generated zot conversation ID as `ZOT_SESSION_ID`. `CLAUDE_CODE_SESSION_ID` is an alias with the same value and lifecycle. The extension replaces inherited values for both names when zot provides a verified session ID, and preserves inherited values when zot does not provide one. Cached session values are cleared after `session_end`. Subagent lifecycle events expose the SDK `agent_id` as `ZOT_CHILD_SESSION`; this value is available only for `SubagentStart` and `SubagentStop` hooks. The SDK does not expose an effort value, remote or bridge identity, messaging channel, child PID, or shell contract, so the extension leaves `ZOT_EFFORT`, remote, bridge, messaging, PID, and shell variables unset. It also does not add a Claude alias for `ZOT_CHILD_SESSION`.
+Lifecycle events expose the persisted or runtime-generated zot conversation ID as `ZOT_SESSION_ID`. `CLAUDE_CODE_SESSION_ID` is an alias with the same value and lifecycle. The extension replaces inherited values for both names when zot provides a verified session ID, and preserves inherited values when zot does not provide one. The extension reuses the current session ID when a later event omits it. A new `SessionStart` clears the previous cached session before it processes the new session. Cached session values are cleared after `session_end`. Subagent lifecycle events expose the SDK `agent_id` as `ZOT_CHILD_SESSION`; this value is available only for `SubagentStart` and `SubagentStop` hooks. The SDK does not expose an effort value, remote or bridge identity, messaging channel, child PID, or shell contract, so the extension leaves `ZOT_EFFORT`, remote, bridge, messaging, PID, and shell variables unset. It also does not add a Claude alias for `ZOT_CHILD_SESSION`.
 
 When zot does not provide a session or child identity, the extension does not invent one. Existing inherited values remain unchanged. When zot provides a value, the extension replaces inherited values for that owned variable. Command hooks read these variables through the selected shell; `$ZOT_PROJECT_DIR` and `${CLAUDE_PROJECT_DIR}` are expanded by that shell. Event data is sent as JSON on standard input, and is not copied into environment variables. The extension never logs these environment values.
 
@@ -240,7 +240,7 @@ only to those `SessionStart` processes. Zot does not set `CLAUDE_ENV_FILE`,
 because it does not claim Claude's environment-file contract. This is a zot
 extension contract, not a claim of Claude compatibility.
 
-Write one assignment per line using `NAME=VALUE`. Names must use shell
+Write one assignment per line using `NAME=VALUE` or `export NAME=VALUE`. Names must use shell
 identifier characters. Zot accepts values as data and rejects malformed lines
 and shell execution characters, including command substitution, redirects,
 pipelines, and separators. Zot parses the file after each `SessionStart` hook;

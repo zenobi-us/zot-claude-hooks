@@ -108,7 +108,7 @@ Zot should expose its own namespaced variables for the same concepts. This avoid
 | `CLAUDE_PLUGIN_DATA` | `ZOT_EXTENSION_DATA` | Persistent data directory for the owning zot extension. Set only when the directory contract exists. |
 | `CLAUDE_CODE_SESSION_ID` | `ZOT_SESSION_ID` | Zot session identifier. Set only when the host provides one. |
 | `CLAUDE_EFFORT` | `ZOT_EFFORT` | Zot effort level, if the host exposes the same concept. Do not invent a value. |
-| `CLAUDE_ENV_FILE` | `ZOT_ENV_FILE` | Zot environment persistence file. Do not set until the persistence feature is implemented. |
+| `CLAUDE_ENV_FILE` | `ZOT_ENV_FILE` | Claude alias remains unset. Zot exposes a separate `ZOT_ENV_FILE` contract for safe SessionStart persistence. |
 | `CLAUDE_CODE_REMOTE` | `ZOT_REMOTE` | Zot remote-session marker. Set only when zot exposes a remote state. |
 | `CLAUDE_CODE_REMOTE_SESSION_ID` | `ZOT_REMOTE_SESSION_ID` | Zot remote session identifier. |
 | `CLAUDE_CODE_BRIDGE_SESSION_ID` | `ZOT_BRIDGE_SESSION_ID` | Zot bridge or control-session identifier. |
@@ -140,16 +140,16 @@ Do not create a `ZOT_*` alias for `TRACEPARENT`. It is a standard W3C trace vari
 
 `CLAUDE_ENV_FILE` is available to `SessionStart`, `Setup`, `CwdChanged`, and `FileChanged` hooks. Claude Code reads shell `export` statements written to this file and applies them to later Bash commands.
 
-Zot does not currently define the same session environment lifecycle. The extension MUST NOT set `CLAUDE_ENV_FILE`, source a caller-provided file, or apply shell exports without a separate design. Sourcing a file would execute arbitrary shell code and would change the environment of later hooks in a way that is not yet defined.
+Zot does not implement Claude's `CLAUDE_ENV_FILE` contract. The extension does implement a separate `ZOT_ENV_FILE` contract: `SessionStart` hooks receive a private file, and later hooks receive safe assignments parsed from that file. Zot accepts `NAME=value` and `export NAME=value` lines, rejects shell execution syntax, never sources the file, and never changes the zot process environment. The extension MUST NOT set `CLAUDE_ENV_FILE` or source a caller-provided file.
 
-A later implementation can support a safe subset:
+The Zot persistence implementation uses this safe subset:
 
 - create a private file per zot session;
-- accept only `export NAME=value` lines;
+- accept `NAME=value` and `export NAME=value` lines;
 - reject command substitution, redirects, and other shell syntax;
 - apply changes only to later hook subprocesses;
 - never change the zot process environment;
-- define behavior on malformed lines and session end.
+- clear state on a new session and at session end.
 
 **Confidence:** High for Claude behavior. High that zot does not currently implement this contract.
 
@@ -220,7 +220,7 @@ ZOT_PROJECT_DIR
 CLAUDE_PROJECT_DIR
 ```
 
-Do not add `CLAUDE_CODE_REMOTE=false`, `ZOT_REMOTE=false`, `CLAUDE_ENV_FILE`, `ZOT_ENV_FILE`, or guessed session values.
+Do not add `CLAUDE_CODE_REMOTE=false`, `ZOT_REMOTE=false`, `CLAUDE_ENV_FILE`, or guessed session values. `ZOT_ENV_FILE` is added only to SessionStart hooks because its safe persistence contract is implemented separately.
 
 Set the result on `exec.Cmd.Env`. This makes the behavior explicit and testable while preserving the current inherited environment.
 
@@ -348,7 +348,7 @@ On Windows, define the shell behavior before adding placeholder rewriting. The C
 
 ### Phase 7: Model environment persistence
 
-Only implement `CLAUDE_ENV_FILE` after the lifecycle is defined.
+Keep `CLAUDE_ENV_FILE` unsupported. The separate `ZOT_ENV_FILE` lifecycle is already implemented.
 
 Required decisions:
 

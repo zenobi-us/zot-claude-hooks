@@ -13,7 +13,7 @@ import (
 
 func TestPersistedEnvironmentAcceptsSafeAssignments(t *testing.T) {
 	state := newHookEnvironmentState(t.TempDir(), "session-a")
-	if err := state.persist("SAFE_VALUE=hello world\nSECOND=/tmp/value\n"); err != nil {
+	if err := state.persist("export SAFE_VALUE=hello world\nSECOND=/tmp/value\n"); err != nil {
 		t.Fatal(err)
 	}
 	if got := state.values["SAFE_VALUE"]; got != "hello world" {
@@ -41,6 +41,19 @@ func TestManifestIncludesPersistenceSource(t *testing.T) {
 		}
 	}
 	t.Fatalf("manifest args = %#v, want persistence.go", manifest.Args)
+}
+
+func TestPersistedEnvironmentKeepsPreviousStateWhenInputIsTooLarge(t *testing.T) {
+	state := newHookEnvironmentState(t.TempDir(), "session-a")
+	if err := state.persist("KEEP=old\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.persist("TOO_LARGE=" + strings.Repeat("x", 128*1024) + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.values["KEEP"]; got != "old" {
+		t.Fatalf("state after oversized input = %#v, want previous state retained", state.values)
+	}
 }
 
 func TestPersistedEnvironmentRejectsExecutableSyntaxMalformedAndDangerousNames(t *testing.T) {

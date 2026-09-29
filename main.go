@@ -300,7 +300,7 @@ func runHookWithEnvironment(ctx context.Context, h hook, payload map[string]any,
 		parent = appendPersistedEnvironment(parent, state)
 	}
 	command.Env = buildHookEnvironmentWithRuntime(parent, projectDir, runtimeEnv, h.SourceContext)
-	if exposeEnvironmentFile {
+	if exposeEnvironmentFile && state != nil {
 		if file := state.environmentFile(); file != "" {
 			command.Env = append(command.Env, "ZOT_ENV_FILE="+file)
 		}
@@ -460,15 +460,18 @@ func payloadDirectory(payload map[string]any, fallback string) string {
 
 func (a *app) event(event, toolName string, payload map[string]any) {
 	processDir := payloadDirectory(payload, a.cwd)
-	runtime := HookRuntime{SessionID: stringsValue(payload["session_id"], "")}
 	if event == "SessionStart" {
+		a.runtimeMu.Lock()
+		a.runtime = HookRuntime{}
+		a.runtimeMu.Unlock()
 		a.envMu.Lock()
 		if a.envState != nil {
 			a.envState.close()
 		}
-		a.envState = newHookEnvironmentState(a.cwd, runtime.SessionID)
+		a.envState = newHookEnvironmentState(a.cwd, stringsValue(payload["session_id"], ""))
 		a.envMu.Unlock()
 	}
+	runtime := a.runtimeForEvent(payload)
 	if event == "SubagentStart" || event == "SubagentStop" {
 		runtime.ChildSession = stringsValue(payload["agent_id"], "")
 	}
@@ -498,6 +501,17 @@ func (a *app) event(event, toolName string, payload map[string]any) {
 		}
 		a.envMu.Unlock()
 	}
+}
+
+func (a *app) runtimeForEvent(payload map[string]any) HookRuntime {
+	runtime := HookRuntime{SessionID: stringsValue(payload["session_id"], "")}
+	if runtime.SessionID != "" {
+		return runtime
+	}
+	a.runtimeMu.RLock()
+	runtime.SessionID = a.runtime.SessionID
+	a.runtimeMu.RUnlock()
+	return runtime
 }
 
 // eventPayload translates the SDK event into the Claude hook envelope while

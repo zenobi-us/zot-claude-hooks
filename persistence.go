@@ -116,6 +116,9 @@ func (s *hookEnvironmentState) refresh() {
 			values[name] = value
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return
+	}
 	s.mu.Lock()
 	if s.file == file {
 		s.values = values
@@ -124,6 +127,7 @@ func (s *hookEnvironmentState) refresh() {
 }
 
 func safeEnvironmentAssignment(line string) (string, string, bool) {
+	line = strings.TrimPrefix(line, "export ")
 	name, value, ok := strings.Cut(line, "=")
 	if !ok || !safeEnvironmentName.MatchString(name) || isBlockedEnvironmentName(name) || strings.ContainsAny(value, "\r\n$`;&|<>") {
 		return "", "", false

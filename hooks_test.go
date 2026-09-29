@@ -75,6 +75,75 @@ func TestEventRunsHookInEventDirectoryWithProjectEnvironment(t *testing.T) {
 	}
 }
 
+func TestLifecycleHooksUseCachedSessionIDWhenEventOmitsIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell expansion test uses sh")
+	}
+	output := filepath.Join(t.TempDir(), "hook-output")
+	a := &app{
+		cwd:   t.TempDir(),
+		hooks: []hook{{Event: "Notification", Command: fmt.Sprintf("printf '%%s|%%s' \"$ZOT_SESSION_ID\" \"$CLAUDE_CODE_SESSION_ID\" > %q", output), Timeout: defaultTimeout}},
+	}
+
+	a.event("SessionStart", "", map[string]any{"session_id": "session-a"})
+	a.event("Notification", "", map[string]any{})
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "session-a|session-a" {
+		t.Fatalf("cached lifecycle runtime = %q, want session-a|session-a", data)
+	}
+}
+
+func TestSessionStartWithoutSessionIDClearsCachedRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell expansion test uses sh")
+	}
+	t.Setenv("ZOT_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	output := filepath.Join(t.TempDir(), "hook-output")
+	a := &app{
+		cwd:   t.TempDir(),
+		hooks: []hook{{Event: "PreToolUse", MatcherRE: regexp.MustCompile(`.*`), Command: fmt.Sprintf("printf '%%s|%%s' \"$ZOT_SESSION_ID\" \"$CLAUDE_CODE_SESSION_ID\" > %q", output), Timeout: defaultTimeout}},
+	}
+
+	a.event("SessionStart", "", map[string]any{"session_id": "session-a"})
+	a.event("SessionStart", "", map[string]any{})
+	allowed, reason := a.preTool("Bash", json.RawMessage(`{"command":"pwd"}`))
+	if !allowed || reason != "" {
+		t.Fatalf("preTool = %t, %q; want allowed", allowed, reason)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "|" {
+		t.Fatalf("cleared runtime = %q, want empty values", data)
+	}
+}
+
+func TestSessionEndHooksUseCachedSessionIDBeforeClearing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell expansion test uses sh")
+	}
+	output := filepath.Join(t.TempDir(), "hook-output")
+	a := &app{
+		cwd:   t.TempDir(),
+		hooks: []hook{{Event: "SessionEnd", Command: fmt.Sprintf("printf '%%s|%%s' \"$ZOT_SESSION_ID\" \"$CLAUDE_CODE_SESSION_ID\" > %q", output), Timeout: defaultTimeout}},
+	}
+
+	a.event("SessionStart", "", map[string]any{"session_id": "session-a"})
+	a.event("SessionEnd", "", map[string]any{})
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "session-a|session-a" {
+		t.Fatalf("session end runtime = %q, want session-a|session-a", data)
+	}
+}
+
 func TestSessionEndClearsCachedRuntimeBeforeLaterHooks(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell expansion test uses sh")
